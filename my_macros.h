@@ -78,3 +78,6 @@
 #define iterate(iter, over_what) \
 	for(iter = over_what.begin(); iter != over_what.end(); iter++)
 
+// For use with "assert(not_implemented)".  This is probably a bit too clever
+//    and should be avoided in public code...
+#define not_implemented false

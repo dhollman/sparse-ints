@@ -1,14 +1,12 @@
-ccfiles := $(wildcard *.cc)
+sources := $(wildcard *.cc)
 hfiles := $(wildcard *.h)
-objfiles := $(ccfiles:.cc=.o)
-executables := $(ccfiles:%.cc=%)
+objfiles := $(sources:.cc=.o)
+executable := sparse_ints
 
 # Change this to the path to your installed sc-config script.
 SCCONFIG = /Users/dhollman/Projects/mpqc/install/latest_repo/mpi/bin/sc-config
 
-# This doesn't work
-# $(ccfiles:%.cc=%_nompi) : SCCONFIG = /Users/dhollman/Projects/mpqc/install/latest_repo/debug/bin/sc-config
-
+# Get the rest of the details using the sc-config script
 CXX := $(shell $(SCCONFIG) --cxx)
 CXXFLAGS := $(shell $(SCCONFIG) --cxxflags)
 CC := $(shell $(SCCONFIG) --cc)
@@ -24,19 +22,16 @@ LTCOMP := $(shell $(SCCONFIG) --ltcomp)
 LTLINK := $(shell $(SCCONFIG) --ltlink)
 LTLINKBINOPTS := $(shell $(SCCONFIG) --ltlinkbinopts)
 
-
+# Ignore c++11 warnings
 CXXFLAGS += -Wno-c++11-extensions
 
-$(objfiles) : $(hfiles)
+all: $(executable)
 
-$(executables): %: %.o
+$(executable): $(objfiles)
 	$(LTLINK) $(CXX) $(CXXFLAGS) -o $@ $^ -L$(LIBDIR) $(LIBS) $(LTLINKBINOPTS)
 	
-#%: %.o 
-#$(LTLINK) $(CXX) $(CXXFLAGS) -o $@ $^ -L$(LIBDIR) $(LIBS) $(LTLINKBINOPTS)
-	
-#%.o: %.cc $(hfiles)
-	
+$(objfiles): %.o: %.cc $(hfiles)
+	$(COMPILE.cc) $<
 	
 clean:
-	-rm -f $(executables) $(objfiles) 
+	-rm -f $(executable) $(objfiles) 

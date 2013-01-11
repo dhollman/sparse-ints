@@ -1,0 +1,7 @@
+.*
+!.gitignore
+vars.zsh
+*.o
+matrices
+sparse_int
+

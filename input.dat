@@ -1,48 +1,45 @@
-
-molecule = $:h2o
-molname = "h2o"
-
-n2<Molecule>: (
-   { atoms    geometry } = {
-      N  [ 0.0 0.0 -1.0 ]
-      N  [ 0.0 0.0  1.0 ]
-   }
-)
-
-methane<Molecule>: (
-   { atoms  geometry } = {
-      C  [   0.00000000  -0.00000000   0.00000000 ]
-      H  [   0.00000000  -0.89000000  -0.62930000 ]
-      H  [   0.00000000   0.89000000  -0.62930000 ]
-      H  [  -0.89000000  -0.00000000   0.62930000 ]
-      H  [   0.89000000  -0.00000000   0.62930000 ]
-   }
-)
-
-
-ne2<Molecule>: (
-   unit= angstrom
-   { atoms    geometry } = {
-      Ne  [ 0.0 0.0  0.0 ]
-      Ne  [ 0.0 0.0 15.0 ]
-   }
-)
+molecule = $:h2
+molname = $molecule:name
 
 ne10<Molecule>: (
-    units=angstrom
-   { atoms    geometry } = {
-      Ne  [ 0.0 0.0  0.0 ]
-      Ne  [ 0.0 0.0  2.0 ]
-      Ne  [ 0.0 0.0  4.0 ]
-      Ne  [ 0.0 0.0  6.0 ]
-      Ne  [ 0.0 0.0  8.0 ]
-      Ne  [ 0.0 0.0 10.0 ]
-      Ne  [ 0.0 0.0 12.0 ]
-      Ne  [ 0.0 0.0 14.0 ]
-      Ne  [ 0.0 0.0 16.0 ]
-      Ne  [ 0.0 0.0 18.0 ]
-   }
+  symmetry=auto
+  units=angstrom
+  { atoms    geometry } = {
+     Ne  [ 0.0 0.0  0.0 ]
+     Ne  [ 0.0 0.0  2.5 ]
+     Ne  [ 0.0 0.0  5.0 ]
+     Ne  [ 0.0 0.0  7.5 ]
+     Ne  [ 0.0 0.0 10.0 ]
+     Ne  [ 0.0 0.0 12.5 ]
+     Ne  [ 0.0 0.0 15.0 ]
+     Ne  [ 0.0 0.0 17.5 ]
+     Ne  [ 0.0 0.0 20.0 ]
+     Ne  [ 0.0 0.0 22.5 ]
+  }
+  name="Ne10"
 )
+
+ne3<Molecule>: (
+  symmetry=auto
+  units=angstrom
+  { atoms    geometry } = {
+     Ne  [ 0.0 0.0  0.0 ]
+     Ne  [ 0.0 0.0  2.5 ]
+     Ne  [ 0.0 0.0  5.0 ]
+  }
+  name="Ne3"
+)
+
+h2<Molecule>: (
+  symmetry=auto
+  unit = angstrom
+  { atoms geometry} = {
+    H  [  0.0  0.0  -0.35 ]
+    H  [  0.0  0.0   0.35 ]
+   }
+   name="h2"
+)
+
 
 h2o<Molecule>: (
   symmetry=auto
@@ -52,68 +49,17 @@ h2o<Molecule>: (
     H  [  -1.5  0.0  -0.3 ]
     O  [   0.0  0.0   1.0 ]
    }
-)
-
-h2o_2<Molecule>: (
-   symmetry = C1
-   unit = angstrom
-   { atoms geometry } = {
-     O     [     0.00000000     0.00000000     0.37000000 ]
-     H     [     0.78000000     0.00000000    -0.18000000 ]
-     H     [    -0.78000000     0.00000000    -0.18000000 ]
-   }
- )
-
-h2odim<Molecule>: (
-  symmetry = C1
-  angstroms = yes
-  { atoms geometry } = {
-    O  [ 0.0  0.0 0.0  ]
-    H  [ 0.0  0.7 0.7  ]
-    H  [ 0.0 -0.7 0.7 ]
-    O  [ 10.0  0.0 0.0  ]
-    H  [ 10.0  0.7 0.7  ]
-    H  [ 10.0 -0.7 0.7 ]
-  }
-)
-
-heh<Molecule>: (
-  symmetry=auto
-  { atoms geometry} = {
-    He  [  -1.0  0.0  0.0 ]
-    H   [   1.0  0.0  0.0 ]
-  }
-)
-
-h<Molecule>: (
-  { atoms    geometry } = {
-     H  [ 0.0 0.0 0.0 ]
-  }
+   name="h2o"
 )
 
 currentbas<GaussianBasisSet>: (
   molecule = $:molecule
-  %name = "cc-pVDZ-F12"
-  %name = "cc-pvtz-f12"
-  %name = "cc-pvqz-f12"
   name = "cc-pVDZ"
-  %name = "cc-pVTZ"
-  %name = "cc-pVQZ"
 )
 
 auxbas<GaussianBasisSet>: ( 
   molecule = $:molecule
   name = "cc-pVDZ-F12-CABS"
-  %name = "cc-pvtz-f12"
-  %name = "cc-pvqz-f12"
-  %name = "cc-pVDZ"
-  %name = "cc-pVTZ"
-  %name = "cc-pVQZ"
-)
-
-r12tech<R12Technology>: (
-  corr_param = 1.0
-  corr_type = "stg-6g"
 )
 
 hf<CLHF>:(
@@ -123,10 +69,9 @@ hf<CLHF>:(
   integrals<IntegralLibint2>:()
 )
 
-test: (
+all: (
    hf = $:hf
    basis = $:currentbas
-   storage = 10000000
    output_dir = "matrices"
    world<WavefunctionWorld>:(
 	   wfn = $..:hf
@@ -135,10 +80,9 @@ test: (
    r12tech = $:r12tech
    corr_param = 1.0
    corr_type = "stg-6g"
-   use_symmetry = yes
-   print_distribution = yes
-   quartets_per_task = 25
+   debug = no
+   max_of_all = yes
+   do_ri = yes
    molname = $:molname
-   cutoff = 14
  )
 
