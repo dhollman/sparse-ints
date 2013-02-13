@@ -23,13 +23,6 @@
 #define ZERO 1e-14
 #define BUFF_SIZE 1048576
 
-// macros
-#define DBG_MSG(mymsg) \
-	if(opts.debug){\
-		lock_->lock();\
-		cout << "          " << msg->me() << "." << threadnum_ << mymsg << endl;\
-		lock_->unlock();\
-	}
 
 
 // mpqc includes
@@ -48,6 +41,8 @@
 #include <util/misc/consumableresources.h>
 #include <util/group/pregtime.h>
 #include <util/group/thread.h>
+#include <math/scmat/repl.h>
+#include <math/scmat/local.h>
 
 // system library includes
 #include <iostream>
@@ -79,12 +74,75 @@ typedef struct {
 
 namespace sparse_ints {
 
+class MultiTimer {
+	std::vector<sc::Ref<sc::RegionTimer> > rtimers_;
+	std::vector<sc::Timer> timers_;
+	sc::Ref<sc::ThreadGrp> thr_;
+	sc::Ref<sc::MessageGrp> msg_;
+	const char *name_;
+
+
+public:
+
+	MultiTimer(){ }
+
+	MultiTimer(const char *name, sc::Ref<sc::MessageGrp> msg, sc::Ref<sc::ThreadGrp> thr){
+		msg_ = msg;
+		thr_ = thr;
+		for_each(ithr, thr_->nthread()){
+			name_ = name;
+			sc::Ref<sc::RegionTimer> tim = new sc::ParallelRegionTimer(msg, name, 1, 1);
+			rtimers_.push_back(tim);
+			sc::Timer timerthr = sc::Timer(tim);
+			timers_.push_back(timerthr);
+		}
+	}
+
+	~MultiTimer() {}
+
+
+	//void enter(const char *region, int threadnum = 0){
+	//	timers_[threadnum].enter(region);
+	//}
+	void enter(const char *region, int threadnum = -1){
+		if(threadnum == -1){
+			for_each(ithr, thr_->nthread()){
+				timers_[ithr].enter(region);
+			}
+		} else
+			timers_[threadnum].enter(region);
+	}
+
+	//void exit(const char *region, int threadnum = 0){
+	//	timers_[threadnum].exit(region);
+	//}
+	void exit(const char *region, int threadnum = -1){
+		if(threadnum == -1){
+			for_each(ithr, thr_->nthread()){
+				timers_[ithr].exit(region);
+			}
+		} else
+			timers_[threadnum].exit(region);
+	}
+
+	void print(std::ostream& o = sc::ExEnv::out0()){
+		sc::Ref<sc::RegionTimer> main_timer = new sc::ParallelRegionTimer(msg_, name_, 1, 1);
+		for(int ithr = 0; ithr < thr_->nthread(); ithr++){
+			//rtimers_[ithr]->update_top();
+			main_timer->merge(rtimers_[ithr]);
+		}
+		rtimers_[0]->print(o);
+	}
+
+};
+
+
 typedef struct {
-	bool debug = false;
-	bool quiet = false;
-	bool verbose = false;
-	bool max_only = true;
-	bool dynamic = true;
+	bool debug;
+	bool quiet;
+	bool verbose;
+	bool max_only;
+	bool dynamic;
 } SparseIntOptions;
 
 using namespace sc;
@@ -92,14 +150,12 @@ using namespace sc;
 // Global variables
 extern Ref<MessageGrp> msg;
 extern Ref<ThreadGrp> thr;
-extern Timer timer;
+extern MultiTimer timer;
 extern SparseIntOptions opts;
-
-class Globals {
-public:
-};
+extern Ref<ThreadLock> print_lock;
 
 
 } // end namespace sparse_ints
 
 #endif /* SPARSE_INTS_H_ */
+

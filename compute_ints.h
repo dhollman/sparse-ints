@@ -9,6 +9,7 @@
 #define COMPUTE_INTS_H_
 
 #include "sparse_ints.h"
+#include <math/scmat/local.h>
 
 namespace sparse_ints{
 
@@ -21,7 +22,7 @@ compute_half_trans_ints(
         const sc::Ref<sc::GaussianBasisSet>& bs13,
         const sc::Ref<sc::GaussianBasisSet>& bs24,
     	DensityMap dens_pairs,
-    	const sc::Ref<sc::SCMatrixKit>& inkit = (sc::Ref<sc::SCMatrixKit>)0
+    	const sc::Ref<sc::LocalSCMatrixKit>& inkit = (sc::Ref<sc::LocalSCMatrixKit>)0
 );
 
 void
@@ -37,7 +38,7 @@ compute_full_trans_ints(
         sc::RefSymmSCMatrix& P2,
         sc::RefSymmSCMatrix& P3,
         sc::RefSymmSCMatrix& P4,
-    	const sc::Ref<sc::SCMatrixKit>& inkit = (sc::Ref<sc::SCMatrixKit>)0
+    	const sc::Ref<sc::LocalSCMatrixKit>& inkit = (sc::Ref<sc::LocalSCMatrixKit>)0
 );
 
 } // end namespace sparse_ints

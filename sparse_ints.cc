@@ -30,6 +30,7 @@
 #include "utils.h"
 #include "compute_ints.h"
 
+
 using namespace sparse_ints;
 using namespace sc;
 using namespace std;
@@ -37,8 +38,10 @@ using namespace std;
 // Global variables
 Ref<MessageGrp> sparse_ints::msg;
 Ref<ThreadGrp> sparse_ints::thr;
-Timer sparse_ints::timer;
+MultiTimer sparse_ints::timer;
 SparseIntOptions sparse_ints::opts;
+Ref<ThreadLock> sparse_ints::print_lock;
+
 
 int
 main(int argc, char** argv) {
@@ -76,10 +79,25 @@ main(int argc, char** argv) {
     int me = msg->me();
 
     //=========================================================//
+    // Create the thread group object
+
+    sparse_ints::thr = ThreadGrp::initial_threadgrp(argc, argv);
+    if (thr.null()) {
+    	thr = ThreadGrp::get_default_threadgrp();
+    }
+    ThreadGrp::set_default_threadgrp(thr);
+    int nthr = thr->nthread();
+    if (!opts.quiet && me == MASTER) {
+        cout << "Running on " << n << " node"
+             << (n == 1 ? "" : "s") << " with " << nthr << " thread"
+             << (nthr == 1 ? "" : "s") << " per node." << endl;
+    }
+    print_lock = thr->new_lock();
+
+    //=========================================================//
     // Create the timer
     
-    Ref<RegionTimer> tim = new ParallelRegionTimer(msg, "AO Ints", 1, 1);
-    Timer timer = Timer(tim);
+    MultiTimer timer("Sparse Ints", msg, thr);
     sparse_ints::timer = timer;
 
     //=========================================================//
@@ -93,11 +111,13 @@ main(int argc, char** argv) {
             keyval->describedclassvalue("aux_basis").pointer(), "main\n");
     Ref<Molecule> mol = obs->molecule();
     SparseIntOptions opts;
-    sparse_ints::opts = opts;
-    opts.debug = keyval->booleanvalue("debug");
-    opts.verbose = keyval->booleanvalue("verbose");
-    opts.quiet = keyval->booleanvalue("quiet");
+    opts.debug = keyval->booleanvalue("debug", KeyValValueboolean(false));
+    opts.verbose = keyval->booleanvalue("verbose", KeyValValueboolean(false));
+    opts.quiet = keyval->booleanvalue("quiet", KeyValValueboolean(false));
     opts.dynamic = keyval->booleanvalue("dynamic", KeyValValueboolean(true));
+    opts.max_only = keyval->booleanvalue("max_only", KeyValValueboolean(true));
+    sparse_ints::opts = opts;
+
     bool do_eri = keyval->booleanvalue("do_eri", KeyValValueboolean(true));
     bool do_f12 = keyval->booleanvalue("do_f12", KeyValValueboolean(true));
     bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(true));
@@ -132,34 +152,26 @@ main(int argc, char** argv) {
     if(!opts.quiet){
     	if((!opts.debug && me == MASTER) || opts.debug){
     		cout << "Using temporary directory " << tmpdir << endl;
+    		if(opts.dynamic) cout << "Using dynamic load balancing" << endl;
+    		else cout << "Using static load balancing" << endl;
     	}
     }
 
     // Create the temporary directory
     if(me == MASTER){
     	int result = mkdir(tmpdir.c_str(), 0777);
+    	if(result!=0) {
+    		// Try deleting the directory and then making it
+    		cout << "Deleting existing temporary directory '"<< tmpdir << "' to overwrite..." << endl;
+    		system(("rm -rf " + tmpdir).c_str());
+    		int result = mkdir(tmpdir.c_str(), 0777);
+    	}
     	assert(result==0);
     }
 
 
     timer.exit("input");
     
-    //=========================================================//
-    // Create the thread group object
-    
-    timer.enter("threadgrp");
-    sparse_ints::thr = ThreadGrp::initial_threadgrp(argc, argv);
-    if (thr.null()) {
-    	thr = ThreadGrp::get_default_threadgrp();
-    }
-    ThreadGrp::set_default_threadgrp(thr);
-    int nthr = thr->nthread();
-    if (!opts.quiet && me == MASTER) {
-        cout << "Running on " << n << " node" 
-             << (n == 1 ? "" : "s") << " with " << nthr << " thread"
-             << (nthr == 1 ? "" : "s") << " per node." << endl;
-    }
-    timer.exit("threadgrp");
 
     //=========================================================//
     // Come up with a name for the files
@@ -184,6 +196,7 @@ main(int argc, char** argv) {
     Ref<PetiteList> pl = integral->petite_list();
 
     RefSymmSCMatrix P, Q, O;
+    Ref<LocalSCMatrixKit> kit = new LocalSCMatrixKit();
     RefSCMatrix Ccabs;
     bool need_P = true;
     bool need_Q = true;
@@ -196,7 +209,11 @@ main(int argc, char** argv) {
 		RefSymmSCMatrix Pso = hf->density();
 		timer.exit("HF");
 		Pso.scale(0.5);
-		P = pl->to_AO_basis(Pso);
+		RefSymmSCMatrix Ptmp = pl->to_AO_basis(Pso);
+		SCMatrixKit::set_default_matrixkit(kit);
+		assert(Ptmp.nblock() == 1);
+		P = kit->symmmatrix(obs->basisdim());
+		P.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Ptmp.block(0), "main\n")->get_data());
 
 		if(need_Q){
 			// Get Q
@@ -204,7 +221,10 @@ main(int argc, char** argv) {
 			RefSymmSCMatrix S = hf->overlap();
 			RefSymmSCMatrix Sinv = S.i();
 			RefSymmSCMatrix Qso = Sinv - Pso;
-			RefSymmSCMatrix Q = pl->to_AO_basis(Qso);
+			RefSymmSCMatrix Qtmp = pl->to_AO_basis(Qso);
+			assert(Qtmp.nblock() == 1);
+			Q = kit->symmmatrix(obs->basisdim());
+			Q.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Qtmp.block(0), "main\n")->get_data());
 			timer.exit("Q");
 		}
 

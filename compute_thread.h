@@ -10,6 +10,7 @@
 #include <queue>
 #include <utility>
 #include <map>
+#include <math/scmat/local.h>
 
 #ifndef COMPUTE_THREAD_H_
 #define COMPUTE_THREAD_H_
@@ -19,32 +20,70 @@ namespace sparse_ints{
 
 class FullTransComputeThread;
 class FullTransCommThread;
+class SendThread;
+class ReceiveThread;
 
 typedef std::pair<int,int> IntPair;
 
 // MessageTypes
 enum {
-	IndexData,
-	PairData,
-	NeedsSend,
-	HaveAllData,
-	ComputeThreadDone,
-	NeedPairAssignment,
-	PairAssignment
+	IndexData=991,
+	PairData=992,
+	NeedsSend=993,
+	HaveAllData=994,
+	ComputeThreadDone=995,
+	NeedPairAssignment=996,
+	PairAssignment=997
 };
 
-class ComputeThread :public sc::Thread {
+class SparseIntsThread : public sc::Thread {
 
 protected:
 
     int threadnum_;
-    sc::Ref<sc::ThreadLock> lock_;
     const sc::Ref<sc::GaussianBasisSet> basis1_;
     const sc::Ref<sc::GaussianBasisSet> basis2_;
     const sc::Ref<sc::GaussianBasisSet> basis3_;
     const sc::Ref<sc::GaussianBasisSet> basis4_;
+    sc::Ref<sc::LocalSCMatrixKit> kit_;
+    std::ofstream dbg_out_;
+
+	SparseIntsThread(
+		int num,
+		const sc::Ref<sc::GaussianBasisSet>& bs1,
+		const sc::Ref<sc::GaussianBasisSet>& bs2,
+		const sc::Ref<sc::GaussianBasisSet>& bs3,
+		const sc::Ref<sc::GaussianBasisSet>& bs4,
+		sc::Ref<sc::LocalSCMatrixKit> kit
+	) :
+		threadnum_(num),
+		basis1_(bs1),
+		basis2_(bs2),
+		basis3_(bs3),
+		basis4_(bs4),
+		kit_(kit)
+    {
+		if(opts.debug) {
+			std::stringstream sstr;
+			sstr << "_debug." << msg->me() << "." << threadnum_ << ".dat";
+			dbg_out_.open(sstr.str().c_str(), std::ios::out);
+		}
+
+    }
+
+	~SparseIntsThread(){
+		if(opts.debug)
+			dbg_out_.close();
+	}
+
+};
+
+class ComputeThread : public SparseIntsThread {
+
+protected:
+
+    sc::Ref<sc::ThreadLock> lock_;
     sc::Ref<sc::TwoBodyInt> inteval_;
-    sc::Ref<sc::SCMatrixKit> kit_;
 
 public:
 
@@ -55,7 +94,8 @@ public:
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
-		const sc::Ref<sc::GaussianBasisSet>& bs4
+		const sc::Ref<sc::GaussianBasisSet>& bs4,
+		sc::Ref<sc::LocalSCMatrixKit>& kit
 	);
 
 	virtual void run() = 0;
@@ -88,7 +128,7 @@ public:
 		std::map<std::string, std::vector<std::string> > prefixes,
 		int num_types,
 		DensityMap& dens_pairs,
-		sc::Ref<sc::SCMatrixKit>& kit,
+		sc::Ref<sc::LocalSCMatrixKit>& kit,
 		int* quartets_processed
     );
 
@@ -107,13 +147,14 @@ class FullTransComputeThread : public ComputeThread {
 	sc::RefSymmSCMatrix& P3_;
 	sc::RefSymmSCMatrix& P4_;
 	std::string prefix_;
-	FullTransCommThread* send_thread_;
-	FullTransCommThread* recv_thread_;
+	SendThread* send_thread_;
+	ReceiveThread* recv_thread_;
 	RefSCDimension bsdim1_;
 	RefSCDimension bsdim2_;
 	RefSCDimension bsdim3_;
 	RefSCDimension bsdim4_;
 
+	int *quartets_computed_;
 
 public:
 
@@ -131,17 +172,52 @@ public:
 		sc::RefSymmSCMatrix& P2,
 		sc::RefSymmSCMatrix& P3,
 		sc::RefSymmSCMatrix& P4,
-		sc::Ref<SCMatrixKit>& kit,
-		FullTransCommThread* send_thread,
-		FullTransCommThread* recv_thread
+		sc::Ref<LocalSCMatrixKit>& kit,
+		SendThread* send_thread,
+		ReceiveThread* recv_thread,
+		int* quartets_computed
     );
+
+    int get_pair_assignment(int sh3, int sh4);
 
     void run();
 
 };
 
 
-class FullTransCommThread : public sc::Thread {
+class FullTransCommThread : public SparseIntsThread {
+
+protected:
+
+	// For use by MASTER
+	std::map<IntPair, int> pair_assignments_;
+	// Doesn't work Priority queue of (num_bf_on_node, node_number) pairs
+	//std::priority_queue<IntPair, std::vector<IntPair>, std::greater<IntPair> > bf_per_node_;
+	int* bf_per_node_;
+
+	FullTransCommThread(
+		int num,
+		const sc::Ref<sc::GaussianBasisSet>& bs1,
+		const sc::Ref<sc::GaussianBasisSet>& bs2,
+		const sc::Ref<sc::GaussianBasisSet>& bs3,
+		const sc::Ref<sc::GaussianBasisSet>& bs4,
+		sc::Ref<sc::LocalSCMatrixKit>& kit
+	);
+
+	~FullTransCommThread();
+
+    void master_run();
+
+    int master_pair_assignment(int sh3, int sh4);
+
+public:
+
+	virtual void run() =0;
+
+};
+
+
+class SendThread : public FullTransCommThread {
 
 	typedef struct {
 		int sh1, sh2;
@@ -149,29 +225,48 @@ class FullTransCommThread : public sc::Thread {
 		double* data;
 	} DataSendTask;
 
-	sc::Ref<sc::ThreadLock> comm_lock_;
+	std::queue<DataSendTask> task_queue_;
 	sc::Ref<sc::ThreadLock> queue_lock_;
 
-	std::queue<DataSendTask> task_queue_;
+	sc::Ref<sc::ThreadLock> comm_lock_;
 
-
+	// currently unused
 	size_t queue_size_;
-
-	const sc::Ref<sc::GaussianBasisSet> basis1_;
-	const sc::Ref<sc::GaussianBasisSet> basis2_;
-	const sc::Ref<sc::GaussianBasisSet> basis3_;
-	const sc::Ref<sc::GaussianBasisSet> basis4_;
-
 	static size_t max_queue_size;
 
-	int thread_type_;
-	Ref<SCMatrixKit>& kit_;
+	const int needs_send_message_;
 
+	std::vector<MessageGrp::MessageHandle> handles_;
+	std::vector<int> messages_;
 
-	// For use by MASTER
-	std::map<IntPair, int> pair_assignments_;
-	// Priority queue of (num_bf_on_node, node_number) pairs
-	std::priority_queue<IntPair, std::vector<IntPair>, std::greater<IntPair> > bf_per_node_;
+public:
+	SendThread(
+		const sc::Ref<sc::GaussianBasisSet>& bs1,
+		const sc::Ref<sc::GaussianBasisSet>& bs2,
+		const sc::Ref<sc::GaussianBasisSet>& bs3,
+		const sc::Ref<sc::GaussianBasisSet>& bs4,
+		sc::Ref<sc::LocalSCMatrixKit>& kit
+	);
+
+	~SendThread();
+
+    void run();
+
+	void distribute_shell_pair(
+		std::vector<RefSCMatrix> pair_mats,
+		int sh1, int sh2, int nbf1, int nbf2, int nbf3tot, int nbf4tot,
+		int threadnum
+	);
+
+    int get_pair_assignment(int sh3, int sh4);
+};
+
+class ReceiveThread : public FullTransCommThread {
+
+	// This should be a queue, but sorting was a pain so I just used a vector
+	std::vector<IntPair> pairs_sorted_;
+	int sorted_pairs_position_;
+	sc::Ref<sc::ThreadLock> pairs_lock_;
 
 	bool my_ints2q_complete_;
 
@@ -197,59 +292,23 @@ class FullTransCommThread : public sc::Thread {
 		}
 	};
 
-	// This should be a queue, but sorting was a pain so I just used a vector
-	std::vector<IntPair> pairs_sorted_;
-	int sorted_pairs_position_;
-
 public:
-	enum {
-		ReceiveThread,
-		SendThread
-	};
 
 	std::map<IntPair, std::vector<RefSCMatrix> > my_ints2q;
 
-	FullTransCommThread(
-		const sc::Ref<sc::ThreadLock>& comm_lock,
-		const sc::Ref<sc::ThreadLock>& queue_lock,
+	ReceiveThread(
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
-		int thread_type,
-		Ref<SCMatrixKit>& kit_
+		sc::Ref<sc::LocalSCMatrixKit>& kit
 	);
-
-	void distribute_shell_pair(
-		std::vector<RefSCMatrix> pair_mats,
-		int sh1, int sh2, int nbf1, int nbf2, int nbf3tot, int nbf4tot,
-		FullTransComputeThread* compute_thread
-	);
-
-    void run();
-
-    int get_pair_assignment(int sh3, int sh4);
 
     bool get_my_next_pair(int&, int&);
 
-};
-
-
-class SendThread : public FullTransCommThread {
-
-public:
-	SendThread(
-		const sc::Ref<sc::ThreadLock>& comm_lock,
-		const sc::Ref<sc::ThreadLock>& queue_lock,
-		const sc::Ref<sc::GaussianBasisSet>& bs1,
-		const sc::Ref<sc::GaussianBasisSet>& bs2,
-		const sc::Ref<sc::GaussianBasisSet>& bs3,
-		const sc::Ref<sc::GaussianBasisSet>& bs4,
-		Ref<SCMatrixKit>& kit_
-	);
+	void run();
 
 };
-
 
 
 } // end namespace sparse_ints
