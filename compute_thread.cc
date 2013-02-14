@@ -12,7 +12,7 @@ using namespace std;
 using namespace sc;
 using namespace sparse_ints;
 
-size_t SendThread::max_queue_size = size_t(5e7);
+size_t SendThread::max_queue_size = size_t(2e8);
 
 // macros
 #define DBG_MSG(mymsg) \
@@ -23,6 +23,15 @@ size_t SendThread::max_queue_size = size_t(5e7);
 		/*print_lock->unlock();*/ \
 	}
 
+#define PRINT_LIST(list, length, width, nperline) \
+		for_each(ind, length){ \
+			cout << setw(width) << list[ind]; \
+			if((ind+1) % nperline == 0){ \
+				cout << endl; \
+			} \
+		} \
+		if (length % nperline != 0) \
+			cout << endl;
 
 /////////////////////////////////////////////////////////////////////////////
 // ComputeThread class
@@ -299,22 +308,28 @@ FullTransCommThread::FullTransCommThread(
 			bf_per_node_[ind] = 0;
 		}
 	}
-
+	int npair = bs3->nshell()*bs4->nshell();
+	pair_assignments_ = new int[npair];
+	if(msg->me() == MASTER) {
+		for_each(ip, npair){
+			pair_assignments_[ip] = -1;
+		}
+	}
 }
 
 FullTransCommThread::~FullTransCommThread(){
 	delete[] bf_per_node_;
+	delete[] pair_assignments_;
 }
 
 int
 FullTransCommThread::master_pair_assignment(int sh3, int sh4)
 {
-	IntPair sh34(sh3, sh4);
+	int sh34 = sh3 * basis4_->nshell() + sh4;
 	const int nbf3 = basis3_->shell(sh3).nfunction();
 	const int nbf4 = basis4_->shell(sh4).nfunction();
-	std::map<IntPair, int>::iterator item = pair_assignments_.find(sh34);
 	// This could be done more efficiently by keeping the list sorted by bf per node
-	if(item == pair_assignments_.end()){
+	if(pair_assignments_[sh34] == -1){
 		int min_val = -1, min_node = 0;
 		for_each(ind, msg->n()-1){
 			int nodebf = bf_per_node_[ind];
@@ -351,8 +366,8 @@ FullTransCommThread::master_run()
 		int nperpair = basis1_->nbasis() * basis2_->nbasis();
 		for_each(ind, msg->n()-1){
 			int size = bf_per_node_[ind] * sizeof(double) * nperpair;
-			cout << setw(9) << memory_size_string(size);
-			if((ind+1) % 10 == 0){
+			cout << setw(12) << memory_size_string(size);
+			if((ind+1) % 6 == 0){
 				cout << endl;
 			}
 		}
@@ -365,54 +380,30 @@ FullTransCommThread::master_run()
 	int n = msg->n();
 	int sh34_sender[3];
 	bool nodes_still_need_data = true;
+	int done_message = 0;
 	while(true){
-		DBG_MSG("Send thread waiting for NeedPairAssignment");
-		msg->recvt(MessageGrp::AnySender, NeedPairAssignment, sh34_sender, 3);
-		DBG_MSG("Send thread got NeedPairAssignment from sender " << sh34_sender[2]);
-		if(sh34_sender[0] == -1){
-			DBG_MSG("Send thread got shutdown message");
-			done_nodes++;
-			if(done_nodes == 1){
-				cout << "  First finished node message received.  Still waiting on " << n-2 << " nodes." << endl;
-			}
-			else if(done_nodes > n/2 && !halfway_message_done){
-				halfway_message_done = true;
-				cout << "  " << setprecision(1) << fixed << float(done_nodes) / float(n) * 100.0 << "% of nodes done." << endl;
-			}
-			if(n-1-done_nodes == 10 && n/4 > 10)
-				cout << "  Waiting for 10 more nodes..." << endl;
-			else if(n-1-done_nodes == 5 && n/4 > 5)
-				cout << "  Waiting for 5 more nodes..." << endl;
-			else if((n-1-done_nodes < 5 && n > 5) || n-1-done_nodes < 3) {
-				if(n-1-done_nodes > 1)
-					cout << "  Waiting for " << n-1-done_nodes << " more nodes..." << endl;
-				else if(n-1-done_nodes == 1)
-					cout << "  Waiting for 1 more node..." << endl;
-			}
-			if(done_nodes == n-1)
-				break;
-			else
-				continue;
+		DBG_MSG("Send thread waiting for DoneSending message");
+		msg->recvt(MessageGrp::AnySender, DoneSending, done_message);
+		DBG_MSG("Send thread got DoneSending message");
+		done_nodes++;
+		if(done_nodes == 1)
+			cout << "  First finished node message received.  Still waiting on " << n-2 << " nodes." << endl;
+		else if(done_nodes > n/2 && !halfway_message_done){
+			halfway_message_done = true;
+			cout << "  " << setprecision(1) << fixed << float(done_nodes) / float(n) * 100.0 << "% of nodes done." << endl;
 		}
-		else{
-			int node_assignment = master_pair_assignment(sh34_sender[0], sh34_sender[1]);
-			DBG_MSG("Master sending PairAssignment to " << sh34_sender[2])
-			msg->sendt(sh34_sender[2], PairAssignment, node_assignment);
-			DBG_MSG("PairAssignment sent")
+		if(n-1-done_nodes == 10 && n/4 > 10)
+			cout << "  Waiting for 10 more nodes..." << endl;
+		else if(n-1-done_nodes == 5 && n/4 > 5)
+			cout << "  Waiting for 5 more nodes..." << endl;
+		else if((n-1-done_nodes < 5 && n > 5) || n-1-done_nodes < 3) {
+			if(n-1-done_nodes > 1)
+				cout << "  Waiting for " << n-1-done_nodes << " more nodes..." << endl;
+			else if(n-1-done_nodes == 1)
+				cout << "  Waiting for 1 more node..." << endl;
 		}
-	}
-	if(!opts.quiet) {
-		// TODO Shell distribution
-		cout << "Pair distribution by nodes:" << endl;
-		for_each(ind, msg->n()-1){
-			cout << setw(7) << bf_per_node_[ind];
-			if((ind+1) % 10 == 0){
-				cout << endl;
-			}
-		}
-		if((msg->n()-1)%10 != 0){
-			cout << endl;
-		}
+		if(done_nodes == n-1)
+			break;
 	}
 	DBG_MSG("Master pair assignment thread shutting down");
 }
@@ -436,16 +427,16 @@ SendThread::SendThread(
 	queue_size_ = 0;
 	const int nsh3 = basis3_->nshell();
 	const int nsh4 = basis4_->nshell();
-	cached_pair_assignments_ = new int[nsh3*nsh4];
-	for_each(ish3,nsh3, ish4,nsh4){
-		cached_pair_assignments_[ish3*nsh4 + ish4] = master_pair_assignment(ish3, ish4);
+	if(msg->me() == MASTER){
+		for_each(ish3,nsh3, ish4,nsh4){
+			pair_assignments_[ish3*nsh4 + ish4] = master_pair_assignment(ish3, ish4);
+		}
 	}
 
 }
 
 SendThread::~SendThread()
 {
-	delete[] cached_pair_assignments_;
 }
 
 void
@@ -454,9 +445,13 @@ SendThread::run()
 	const int me = msg->me();
 
 	if(me == MASTER) {
+		int npair = basis3_->nshell()*basis4_->nshell();
+		msg->bcast(pair_assignments_, npair, 0);
 		master_run();
 	}
 	else {
+		int npair = basis3_->nshell()*basis4_->nshell();
+		msg->bcast(pair_assignments_, npair, 0);
 
 		// We're the comm thread on a non master node, or static task distribution is enabled.
 		const int nsh3 = basis3_->nshell();
@@ -525,7 +520,7 @@ SendThread::run()
 			// Put all of the data belonging to a given index 3, 4 pair together
 			for_each(sh3,nsh3, sh4,nsh4){
 				int sh34 = sh3*nsh4 + sh4;
-				int dest_node = cached_pair_assignments_[sh34];
+				int dest_node = pair_assignments_[sh34];
 				assert(dest_node < msg->n() && dest_node > 0);
 
 				int sh3off = basis3_->shell_to_function(sh3);
@@ -576,8 +571,8 @@ SendThread::run()
 		}
 
 		// Tell the master node we don't need any more pair assignments
-		int pair_assignment_end[] = {-1, -1, me};
-		msg->sendt(MASTER, NeedPairAssignment, pair_assignment_end, 3);
+		int done_message = -1;
+		msg->sendt(MASTER, DoneSending, done_message);
 		DBG_MSG("Send thread shutting down...");
 	}
 
@@ -701,6 +696,8 @@ ReceiveThread::run()
 		nodes_done[inode] = false;
 	}
 
+	int memory_used = 0;
+
 	while(true){
 
 		int idxs[5];
@@ -734,6 +731,7 @@ ReceiveThread::run()
 		int pair_ndata = nbf1 * nbf2 * nbf3 * nbf4;
 		int sh1off = basis1_->shell_to_function(sh1);
 		int sh2off = basis2_->shell_to_function(sh2);
+		int matsize = basis1_->nbasis() * basis2_->nbasis() * sizeof(double);
 
 		double recv_data[pair_ndata];
 		msg->recvt(idxs[4], PairData, recv_data, pair_ndata);
@@ -744,9 +742,11 @@ ReceiveThread::run()
 		if(ints34.empty()){
 			for_each(bf3,nbf3, bf4,nbf4){
 				RefSCMatrix tmp = kit_->matrix(basis1_->basisdim(), basis2_->basisdim());
+				memory_used += matsize;
 				tmp.assign(0.0);
 				my_ints2q[sh34].push_back(tmp);
 			}
+			DBG_MSG("(Approx) memory used: " << memory_size_string(memory_used));
 		}
 		int ibf = 0;
 		for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){

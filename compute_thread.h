@@ -32,7 +32,7 @@ enum {
 	NeedsSend=993,
 	HaveAllData=994,
 	ComputeThreadDone=995,
-	NeedPairAssignment=996,
+	DoneSending=996,
 	PairAssignment=997,
 	QueueHasSpace=998
 };
@@ -191,7 +191,7 @@ class FullTransCommThread : public SparseIntsThread {
 protected:
 
 	// For use by MASTER
-	std::map<IntPair, int> pair_assignments_;
+	int* pair_assignments_;
 	// Doesn't work Priority queue of (num_bf_on_node, node_number) pairs
 	//std::priority_queue<IntPair, std::vector<IntPair>, std::greater<IntPair> > bf_per_node_;
 	int* bf_per_node_;
@@ -231,14 +231,10 @@ class SendThread : public FullTransCommThread {
 
 	sc::Ref<sc::ThreadLock> comm_lock_;
 
-	// currently unused
 	size_t queue_size_;
 	static size_t max_queue_size;
 
 	const int needs_send_message_;
-
-	//std::map<IntPair, int> cached_pair_assignments_;
-	int* cached_pair_assignments_;
 
 	std::vector<MessageGrp::MessageHandle> handles_;
 	std::vector<int> messages_;

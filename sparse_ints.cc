@@ -120,10 +120,10 @@ main(int argc, char** argv) {
 
     bool do_eri = keyval->booleanvalue("do_eri", KeyValValueboolean(true));
     bool do_f12 = keyval->booleanvalue("do_f12", KeyValValueboolean(true));
-    bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(true));
-    bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(true));
-    bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(true));
-    bool do_ri = keyval->booleanvalue("do_ri", KeyValValueboolean(true));
+    bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(false));
+    bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
+    bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
+    string densmats = keyval->stringvalue("densmats");
 
     // Figure out where to put scratch files
     char* scratch_dir = getenv("SCRATCH");
@@ -133,22 +133,21 @@ main(int argc, char** argv) {
     }
     char* job_id = getenv("PBS_JOBID");
     int pid;
-    if(job_id == 0 && me == MASTER){
-    	// get unique process id.  (Only if we can't get a JOBID)
-    	pid_t mypid = getpid();
-    	pid = (int)mypid;
+    if(job_id == 0){
+    	if(me == MASTER){
+			// get unique process id.  (Only if we can't get a JOBID)
+			pid_t mypid = getpid();
+			pid = (int)mypid;
+    	}
+    	// broadcast the process id
+    	msg->bcast(pid, 0);
+    	job_id = new char[32];
+    	sprintf(job_id, "%d", pid);
     }
-    // broadcast the process id
-    msg->bcast(&pid, sizeof(pid_t), 0);
-	{
-    	stringstream sstr;
-		sstr << pid;
-		job_id = const_cast<char*>(sstr.str().c_str());
-	}
 	// Get the temporary directory as a string
-    stringstream sstr;
-    sstr << scratch_dir << "/" << job_id;
-    string tmpdir = sstr.str();
+    char* ctmpdir = new char[256];
+    sprintf(ctmpdir, "%s/%s", scratch_dir, job_id);
+    string tmpdir(const_cast<const char*>(ctmpdir));
     if(!opts.quiet){
     	if((!opts.debug && me == MASTER) || opts.debug){
     		cout << "Using temporary directory " << tmpdir << endl;
@@ -198,9 +197,25 @@ main(int argc, char** argv) {
     RefSymmSCMatrix P, Q, O;
     Ref<LocalSCMatrixKit> kit = new LocalSCMatrixKit();
     RefSCMatrix Ccabs;
-    bool need_P = true;
-    bool need_Q = true;
-    bool need_O = do_ri;
+    bool need_P = false;
+    bool need_Q = false;
+    bool need_O = false;
+    for_each(imat, 4){
+    	switch(densmats[imat]) {
+    	case 'P':
+    		need_P = true;
+    		break;
+    	case 'Q':
+    		need_Q = true;
+    		break;
+    	case 'O':
+    		need_O = true;
+    		break;
+    	default:
+    		assert(false);
+    		break;
+    	}
+    }
 
     // Only get P and Q if we need them.
     if(need_P || need_Q || need_O){
@@ -229,7 +244,6 @@ main(int argc, char** argv) {
 		}
 
     }
-
     //=========================================================//
     // make R12WavefunctionWorld
     timer.enter("build cf");
@@ -253,6 +267,25 @@ main(int argc, char** argv) {
     	O.accumulate_symmetric_product(Ccabs);
     }
 
+    RefSCMatrix dmats[4];
+    for_each(imat, 4){
+    	switch(densmats[imat]) {
+    	case 'P':
+    		need_P = true;
+    		break;
+    	case 'Q':
+    		need_Q = true;
+    		break;
+    	case 'O':
+    		need_O = true;
+    		break;
+    	default:
+    		assert(false);
+    		break;
+    	}
+    }
+
+
     //#############################################################################//
 
     if(do_f12){
@@ -264,7 +297,7 @@ main(int argc, char** argv) {
     	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
     	compute_full_trans_ints(
     			descr, otype,
-    			prefix + "PQPQF", tmpdir,
+    			prefix + densmats, tmpdir,
     			obs, obs, obs, obs,
     			P, Q, P, Q
     	);

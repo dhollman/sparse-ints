@@ -1,4 +1,4 @@
-molecule = $:h2
+molecule = $:ne3
 molname = $molecule:name
 
 ne10<Molecule>: (
@@ -82,7 +82,7 @@ all: (
    corr_type = "stg-6g"
    debug = no
    max_of_all = yes
-   do_ri = yes
+   do_ri = no
    molname = $:molname
  )
 
