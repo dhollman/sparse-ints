@@ -33,7 +33,8 @@ enum {
 	HaveAllData=994,
 	ComputeThreadDone=995,
 	NeedPairAssignment=996,
-	PairAssignment=997
+	PairAssignment=997,
+	QueueHasSpace=998
 };
 
 class SparseIntsThread : public sc::Thread {
@@ -235,6 +236,9 @@ class SendThread : public FullTransCommThread {
 	static size_t max_queue_size;
 
 	const int needs_send_message_;
+
+	//std::map<IntPair, int> cached_pair_assignments_;
+	int* cached_pair_assignments_;
 
 	std::vector<MessageGrp::MessageHandle> handles_;
 	std::vector<int> messages_;

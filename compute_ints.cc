@@ -300,7 +300,7 @@ sparse_ints::compute_full_trans_ints(
 			msg->recvt(MessageGrp::AnySender, DoneCollecting, node_done);
 			ndone++;
 			done_nodes[node_done-1] = true;
-			if(msg->n() - 1 - ndone < 1000){
+			if(msg->n() - 1 - ndone < msg->n()/10){
 				cout << "    Node " << node_done << " reported finished collecting." << endl;
 				if(ndone < msg->n() - 1){
 					cout << "    Still waiting on " << (msg->n()-1-ndone) << " nodes.";

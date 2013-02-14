@@ -8,11 +8,11 @@
 #include "compute_thread.h"
 #include "utils.h"
 
-
-
 using namespace std;
 using namespace sc;
 using namespace sparse_ints;
+
+size_t SendThread::max_queue_size = size_t(5e7);
 
 // macros
 #define DBG_MSG(mymsg) \
@@ -155,12 +155,12 @@ FullTransComputeThread::run(){
 
 			int bf1234 = 0;
 			for_each(bf1,nbf1, bf2,nbf2){
-				for_each(bf3,nbf3, bf4,nbf4){
-					g12.set_element(bf3, bf4, buffer[bf1234]);
-					bf1234++;
-				}
+				//for_each(bf3,nbf3, bf4,nbf4){
+				//	g12.set_element(bf3, bf4, buffer[bf1234]);
+				//	bf1234++;
+				//}
 				// Better:
-				// g12->assign(&(buffer[bf1*nbf2*nbf3*nbf4 + bf2*nbf3*nbf4]))
+				g12->assign(&(buffer[bf1*nbf2*nbf3*nbf4 + bf2*nbf3*nbf4]));
 
 				// accumulate the first quarter transform
 				int pairnum = bf1*nbf2 + bf2;
@@ -336,6 +336,30 @@ void
 FullTransCommThread::master_run()
 {
 	// We're the manager for the comm threads; get to work assigning places to put pairs
+	if(!opts.quiet) {
+		cout << "Pair distribution by nodes:" << endl;
+		for_each(ind, msg->n()-1){
+			cout << setw(7) << bf_per_node_[ind];
+			if((ind+1) % 10 == 0){
+				cout << endl;
+			}
+		}
+		if((msg->n()-1)%10 != 0){
+			cout << endl;
+		}
+		cout << "Memory requirement per node:" << endl;
+		int nperpair = basis1_->nbasis() * basis2_->nbasis();
+		for_each(ind, msg->n()-1){
+			int size = bf_per_node_[ind] * sizeof(double) * nperpair;
+			cout << setw(9) << memory_size_string(size);
+			if((ind+1) % 10 == 0){
+				cout << endl;
+			}
+		}
+		if((msg->n()-1)%10 != 0){
+			cout << endl;
+		}
+	}
 	int done_nodes = 0;
 	bool halfway_message_done = false;
 	int n = msg->n();
@@ -344,7 +368,7 @@ FullTransCommThread::master_run()
 	while(true){
 		DBG_MSG("Send thread waiting for NeedPairAssignment");
 		msg->recvt(MessageGrp::AnySender, NeedPairAssignment, sh34_sender, 3);
-		DBG_MSG("Send thread got NeedPairAssignment");
+		DBG_MSG("Send thread got NeedPairAssignment from sender " << sh34_sender[2]);
 		if(sh34_sender[0] == -1){
 			DBG_MSG("Send thread got shutdown message");
 			done_nodes++;
@@ -362,7 +386,7 @@ FullTransCommThread::master_run()
 			else if((n-1-done_nodes < 5 && n > 5) || n-1-done_nodes < 3) {
 				if(n-1-done_nodes > 1)
 					cout << "  Waiting for " << n-1-done_nodes << " more nodes..." << endl;
-				else
+				else if(n-1-done_nodes == 1)
 					cout << "  Waiting for 1 more node..." << endl;
 			}
 			if(done_nodes == n-1)
@@ -372,7 +396,7 @@ FullTransCommThread::master_run()
 		}
 		else{
 			int node_assignment = master_pair_assignment(sh34_sender[0], sh34_sender[1]);
-			DBG_MSG("Master sending PairAssignment")
+			DBG_MSG("Master sending PairAssignment to " << sh34_sender[2])
 			msg->sendt(sh34_sender[2], PairAssignment, node_assignment);
 			DBG_MSG("PairAssignment sent")
 		}
@@ -410,28 +434,18 @@ SendThread::SendThread(
 	queue_lock_ = thr->new_lock();
 	comm_lock_ = thr->new_lock();
 	queue_size_ = 0;
+	const int nsh3 = basis3_->nshell();
+	const int nsh4 = basis4_->nshell();
+	cached_pair_assignments_ = new int[nsh3*nsh4];
+	for_each(ish3,nsh3, ish4,nsh4){
+		cached_pair_assignments_[ish3*nsh4 + ish4] = master_pair_assignment(ish3, ish4);
+	}
+
 }
 
 SendThread::~SendThread()
 {
-}
-
-int
-SendThread::get_pair_assignment(int sh3, int sh4)
-{
-	int sh34_sender[] = {sh3, sh4, msg->me()};
-	// Lock to prevent overlapping threads from getting the wrong message.
-	//   Could also (probably) be done with different typed messages for each thread...
-	DBG_MSG("Acquiring comm lock.");
-	comm_lock_->lock();
-	DBG_MSG("Sending NeedPairAssignment message.");
-	msg->sendt(MASTER, NeedPairAssignment, sh34_sender, 3);
-	int assignment = 0;
-	DBG_MSG("Receiving PairAssignment message.");
-	msg->recvt(MASTER, PairAssignment, assignment);
-	comm_lock_->unlock();
-	DBG_MSG("PairAssignment message received: ("<< sh34_sender[0] << ", " << sh34_sender[1] << ") goes to node " << assignment);
-	return assignment;
+	delete[] cached_pair_assignments_;
 }
 
 void
@@ -447,6 +461,8 @@ SendThread::run()
 		// We're the comm thread on a non master node, or static task distribution is enabled.
 		const int nsh3 = basis3_->nshell();
 		const int nsh4 = basis4_->nshell();
+		vector<MessageGrp::MessageHandle> handles;
+		vector<int> sizes;
 
 		bool tasks_done[thr->nthread()-2];
 		for_each(ithr, thr->nthread()-2){
@@ -456,6 +472,14 @@ SendThread::run()
 
 			// TODO this would be done better using e.g. pthread conditionals
 			// Receive a message alerting us that there is communication work to do
+
+			MessageGrp::MessageHandle hndl;
+			handles.push_back(hndl);
+			int available = int(max_queue_size - queue_size_);
+			sizes.push_back(available);
+			msg->nb_sendt(msg->me(), QueueHasSpace, &available, 1, hndl);
+			// TODO figure out how to go through and clean up unused entries in the vectors?
+
 			int task_code = -1;
 			DBG_MSG("Send thread waiting for NeedsSend");
 			msg->recvt(msg->me(), NeedsSend, task_code);
@@ -500,7 +524,9 @@ SendThread::run()
 			// Send the data
 			// Put all of the data belonging to a given index 3, 4 pair together
 			for_each(sh3,nsh3, sh4,nsh4){
-				int dest_node = get_pair_assignment(sh3, sh4);
+				int sh34 = sh3*nsh4 + sh4;
+				int dest_node = cached_pair_assignments_[sh34];
+				assert(dest_node < msg->n() && dest_node > 0);
 
 				int sh3off = basis3_->shell_to_function(sh3);
 				int sh4off = basis4_->shell_to_function(sh4);
@@ -534,6 +560,9 @@ SendThread::run()
 				msg->sendt(dest_node, IndexData, idxs, 5);
 				msg->sendt(dest_node, PairData, send_data, pair_ndata);
 				DBG_MSG("Send index data successfully.");
+				queue_lock_->lock();
+				queue_size_-= sizeof(DataSendTask) + pair_ndata*sizeof(double);
+				queue_lock_->unlock();
 			}
 			delete[] t.data;
 		}
@@ -586,8 +615,13 @@ SendThread::distribute_shell_pair(
 	}
 	timer.exit("rearrange data", threadnum);
 
+	size_t space_required = sizeof(DataSendTask) + ndata*sizeof(double);
+	assert(space_required < max_queue_size);
 	// TODO Implement a queue size limit using e.g. pthread contitionals
 	// Acquire the queue lock.
+	int space_amt = 0;
+	while(space_amt < space_required)
+		msg->recvt(msg->me(), QueueHasSpace, space_amt);
 	DBG_MSG("(outside compute thread) " << sh1 << "," << sh2 << ": trying to lock queue_lock_")
 	timer.enter("push task", threadnum);
 	queue_lock_->lock();
@@ -595,7 +629,7 @@ SendThread::distribute_shell_pair(
 
 	// Push the task onto the queue
 	task_queue_.push(task);
-	queue_size_ += sizeof(DataSendTask) + ndata*sizeof(double);
+	queue_size_ += space_required;
 
 	// Now release the lock
 	queue_lock_->unlock();

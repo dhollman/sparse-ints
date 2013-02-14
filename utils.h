@@ -53,8 +53,7 @@ file_size(string file){
 }
 
 inline string
-file_size_string(string file){
-	double length = (double)file_size(file);
+memory_size_string(double length){
 	stringstream sstr;
 	if(length < 8.e2)
 		sstr << length << " B";
@@ -67,6 +66,19 @@ file_size_string(string file){
 	string str = sstr.str();
 	return str;
 }
+
+inline string
+memory_size_string(int length){
+	return memory_size_string(double(length));
+}
+
+inline string
+file_size_string(string file){
+	double length = (double)file_size(file);
+	return memory_size_string(length);
+}
+
+
 
 inline void
 copy_buffer(ifstream& i, ofstream& o){
