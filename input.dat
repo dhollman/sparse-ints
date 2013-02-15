@@ -82,7 +82,8 @@ all: (
    corr_type = "stg-6g"
    debug = no
    max_of_all = yes
-   do_ri = no
+   do_f12 = no
+   densmats= "IIII"
    molname = $:molname
  )
 

@@ -123,7 +123,7 @@ main(int argc, char** argv) {
     bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(false));
     bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
-    string densmats = keyval->stringvalue("densmats");
+    string densmats = keyval->stringvalue("densmats", KeyValValuestring("PQPQ"));
 
     // Figure out where to put scratch files
     char* scratch_dir = getenv("SCRATCH");
@@ -195,6 +195,7 @@ main(int argc, char** argv) {
     Ref<PetiteList> pl = integral->petite_list();
 
     RefSymmSCMatrix P, Q, O;
+    RefSymmSCMatrix I, R;
     Ref<LocalSCMatrixKit> kit = new LocalSCMatrixKit();
     RefSCMatrix Ccabs;
     bool need_P = false;
@@ -210,9 +211,6 @@ main(int argc, char** argv) {
     		break;
     	case 'O':
     		need_O = true;
-    		break;
-    	default:
-    		assert(false);
     		break;
     	}
     }
@@ -267,17 +265,43 @@ main(int argc, char** argv) {
     	O.accumulate_symmetric_product(Ccabs);
     }
 
-    RefSCMatrix dmats[4];
+    // Mostly for testing, but can be used as a cheesy way to do half-transforms
+    I = kit->symmmatrix(obs->basisdim());
+    I.assign(0.0);
+    I->shift_diagonal(1.0);
+    R = kit->symmmatrix(ribs->basisdim());
+    R.assign(0.0);
+    R->shift_diagonal(1.0);
+    RefSymmSCMatrix zero = kit->symmmatrix(obs->basisdim());
+    zero.assign(0.0);
+
+    RefSymmSCMatrix dmats[4];
+    Ref<GaussianBasisSet> basis_sets[4];
     for_each(imat, 4){
     	switch(densmats[imat]) {
     	case 'P':
-    		need_P = true;
+    		dmats[imat] = P;
+    		basis_sets[imat] = obs;
     		break;
     	case 'Q':
-    		need_Q = true;
+    		dmats[imat] = Q;
+    		basis_sets[imat] = obs;
     		break;
     	case 'O':
-    		need_O = true;
+    		dmats[imat] = O;
+    		basis_sets[imat] = ribs;
+    		break;
+    	case 'I':
+    		dmats[imat] = I;
+    		basis_sets[imat] = obs;
+    		break;
+    	case 'R':
+    		dmats[imat] = R;
+    		basis_sets[imat] = ribs;
+    		break;
+    	case '0':
+    		dmats[imat] = zero;
+    		basis_sets[imat] = obs;
     		break;
     	default:
     		assert(false);
@@ -288,37 +312,47 @@ main(int argc, char** argv) {
 
     //#############################################################################//
 
-    if(do_f12){
-    	timer.enter("F12");
-    	int num_types = do_eri + do_f12;
-    	TwoBodyOper::type otype = cf->tbint_type_f12();
-    	string* descs = new string[num_types];
+    if(do_eri){
+    	timer.enter("ERI");
+    	TwoBodyOper::type otype = cf->tbint_type_eri();
     	// Compute and tranform the integrals
     	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
     	compute_full_trans_ints(
     			descr, otype,
-    			prefix + densmats, tmpdir,
-    			obs, obs, obs, obs,
-    			P, Q, P, Q
+    			prefix + densmats + "g", tmpdir,
+    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+    			dmats[0], dmats[1], dmats[2], dmats[3],
+    			kit
     	);
-//    	if(do_ri){
-//			// Compute and tranform the integrals
-//    		ri_integral->set_basis(obs, ribs, obs, ribs);
-//    		DensityMap ri_pairs;
-//			ri_pairs["OO"] = SymmSCMatrixPair(O, O);
-//			Ref<TwoBodyIntDescr> ri_descr = cf->tbintdescr(ri_integral, 0);
-//			compute_half_trans_ints(
-//					ri_descr,
-//					otypes, descs, num_types,
-//					prefix, tmpdir,
-//					obs, ribs,
-//					ri_pairs,
-//					Ccabs->kit()
-//			);
-//
-//    	}
-    	delete[] descs;
+    	timer.exit("ERI");
+    }
+    if(do_f12){
+    	timer.enter("F12");
+    	TwoBodyOper::type otype = cf->tbint_type_f12();
+    	// Compute and tranform the integrals
+    	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+    	compute_full_trans_ints(
+    			descr, otype,
+    			prefix + densmats + "F", tmpdir,
+    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+    			dmats[0], dmats[1], dmats[2], dmats[3],
+    			kit
+    	);
     	timer.exit("F12");
+    }
+    if(do_f12g12){
+    	timer.enter("F12G12");
+    	TwoBodyOper::type otype = cf->tbint_type_f12eri();
+    	// Compute and tranform the integrals
+    	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+    	compute_full_trans_ints(
+    			descr, otype,
+    			prefix + densmats + "Fg", tmpdir,
+    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+    			dmats[0], dmats[1], dmats[2], dmats[3],
+    			kit
+    	);
+    	timer.exit("F12G12");
     }
 
     //=========================================================//

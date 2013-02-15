@@ -190,7 +190,6 @@ class FullTransCommThread : public SparseIntsThread {
 
 protected:
 
-	// For use by MASTER
 	int* pair_assignments_;
 	// Doesn't work Priority queue of (num_bf_on_node, node_number) pairs
 	//std::priority_queue<IntPair, std::vector<IntPair>, std::greater<IntPair> > bf_per_node_;
@@ -226,7 +225,16 @@ class SendThread : public FullTransCommThread {
 		double* data;
 	} DataSendTask;
 
+	typedef struct {
+		int ish1, ibf1;
+		int jsh3, jbf3;
+		int sh4;
+		int ndata;
+		double* data;
+	} BFDataSendTask;
+
 	std::queue<DataSendTask> task_queue_;
+	std::queue<BFDataSendTask> bftask_queue_;
 	sc::Ref<sc::ThreadLock> queue_lock_;
 
 	sc::Ref<sc::ThreadLock> comm_lock_;
@@ -258,13 +266,20 @@ public:
 		int threadnum
 	);
 
+	void distribute_bf_pair(
+		sc::RefSCMatrix ints2q,
+		int ibf1, int jbf3, int sh4,
+		int threadnum
+	);
+
+
     int get_pair_assignment(int sh3, int sh4);
 };
 
 class ReceiveThread : public FullTransCommThread {
 
-	// This should be a queue, but sorting was a pain so I just used a vector
-	std::vector<IntPair> pairs_sorted_;
+	std::vector<IntPair> assigned_pairs_;
+	std::vector<int> nbf_pairs_;
 	int sorted_pairs_position_;
 	sc::Ref<sc::ThreadLock> pairs_lock_;
 
