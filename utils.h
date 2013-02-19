@@ -6,6 +6,7 @@
  */
 
 #include "sparse_ints.h"
+#include <stdlib.h>
 
 #ifndef UTILS_H_
 #define UTILS_H_
@@ -25,6 +26,41 @@ max_abs(sc::RefSCMatrix& mat){
 		}
 	}
 	return maxval;
+}
+
+template <class T=value_t>
+inline T
+mean(sc::RefSCMatrix& mat){
+	int nrows = mat->nrow();
+	int ncols = mat->ncol();
+	T total = 0.0;
+	for_each(row,nrows, col,ncols){
+		T tmpval = (T)fabs(mat->get_element(row, col));
+		total += tmpval;
+	}
+	return total/((T)(nrows*ncols));
+}
+
+inline int compare(const void * a, const void * b)
+{
+  return ( *(int*)a - *(int*)b );
+}
+
+
+template <class T=value_t>
+inline T
+median(sc::RefSCMatrix& mat){
+	int nrows = mat->nrow();
+	int ncols = mat->ncol();
+	double *data = new double[nrows*ncols];
+	for_each(idata, nrows*ncols){
+		data[idata] = fabs(data[idata]);
+	}
+	mat->convert(data);
+	qsort(data, nrows*ncols, sizeof(double), compare);
+	T rv = (T)data[nrows*ncols/2];
+	delete[] data;
+	return rv;
 }
 
 template <class T=value_t, class index_type=idx_t>

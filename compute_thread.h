@@ -220,8 +220,9 @@ public:
 class SendThread : public FullTransCommThread {
 
 	typedef struct {
-		int sh1, sh2;
-		int nbf1, nbf2, nbftot3, nbftot4;
+		int ish1, jsh3;
+		int sh4;
+		int ndata;
 		double* data;
 	} DataSendTask;
 
@@ -239,7 +240,8 @@ class SendThread : public FullTransCommThread {
 
 	sc::Ref<sc::ThreadLock> comm_lock_;
 
-	size_t queue_size_;
+	int queue_size_;
+	//size_t queue_size_;
 	static size_t max_queue_size;
 
 	const int needs_send_message_;
@@ -262,7 +264,7 @@ public:
 
 	void distribute_shell_pair(
 		std::vector<RefSCMatrix> pair_mats,
-		int sh1, int sh2, int nbf1, int nbf2, int nbf3tot, int nbf4tot,
+		int ish1, int jsh3, int sh4,
 		int threadnum
 	);
 
@@ -283,7 +285,6 @@ class ReceiveThread : public FullTransCommThread {
 	int sorted_pairs_position_;
 	sc::Ref<sc::ThreadLock> pairs_lock_;
 
-	bool my_ints2q_complete_;
 
 	class bf_compare_{
 		const sc::Ref<sc::GaussianBasisSet> basis3_;
@@ -309,6 +310,7 @@ class ReceiveThread : public FullTransCommThread {
 
 public:
 
+	bool my_ints2q_complete_;
 	std::map<IntPair, std::vector<RefSCMatrix> > my_ints2q;
 
 	ReceiveThread(

@@ -123,7 +123,11 @@ main(int argc, char** argv) {
     bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(false));
     bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
-    string densmats = keyval->stringvalue("densmats", KeyValValuestring("PQPQ"));
+    int num_densmats = keyval->count("densmats");
+    vector<string> densmats(num_densmats);
+    for_each(imat, num_densmats){
+    	densmats[imat] = keyval->stringvalue("densmats", imat, KeyValValuestring("PQPQ"));
+    }
 
     // Figure out where to put scratch files
     char* scratch_dir = getenv("SCRATCH");
@@ -201,18 +205,20 @@ main(int argc, char** argv) {
     bool need_P = false;
     bool need_Q = false;
     bool need_O = false;
-    for_each(imat, 4){
-    	switch(densmats[imat]) {
-    	case 'P':
-    		need_P = true;
-    		break;
-    	case 'Q':
-    		need_Q = true;
-    		break;
-    	case 'O':
-    		need_O = true;
-    		break;
-    	}
+    for_each(iset, num_densmats){
+		for_each(imat, 4){
+			switch(densmats[iset][imat]) {
+			case 'P':
+				need_P = true;
+				break;
+			case 'Q':
+				need_Q = true;
+				break;
+			case 'O':
+				need_O = true;
+				break;
+			}
+		}
     }
 
     // Only get P and Q if we need them.
@@ -274,85 +280,97 @@ main(int argc, char** argv) {
     R->shift_diagonal(1.0);
     RefSymmSCMatrix zero = kit->symmmatrix(obs->basisdim());
     zero.assign(0.0);
+    P->print("P");
 
     RefSymmSCMatrix dmats[4];
     Ref<GaussianBasisSet> basis_sets[4];
-    for_each(imat, 4){
-    	switch(densmats[imat]) {
-    	case 'P':
-    		dmats[imat] = P;
-    		basis_sets[imat] = obs;
-    		break;
-    	case 'Q':
-    		dmats[imat] = Q;
-    		basis_sets[imat] = obs;
-    		break;
-    	case 'O':
-    		dmats[imat] = O;
-    		basis_sets[imat] = ribs;
-    		break;
-    	case 'I':
-    		dmats[imat] = I;
-    		basis_sets[imat] = obs;
-    		break;
-    	case 'R':
-    		dmats[imat] = R;
-    		basis_sets[imat] = ribs;
-    		break;
-    	case '0':
-    		dmats[imat] = zero;
-    		basis_sets[imat] = obs;
-    		break;
-    	default:
-    		assert(false);
-    		break;
+    for_each(iset, num_densmats){
+    	if(me == MASTER){
+    		cout << "========================================" << endl;
+    		cout << "  Working on transformation " << densmats[iset] << endl;
+    		cout << "========================================" << endl;
     	}
-    }
+		for_each(imat, 4){
+			switch(densmats[iset][imat]) {
+			case 'P':
+				dmats[imat] = P;
+				basis_sets[imat] = obs;
+				break;
+			case 'Q':
+				dmats[imat] = Q;
+				basis_sets[imat] = obs;
+				break;
+			case 'O':
+				dmats[imat] = O;
+				basis_sets[imat] = ribs;
+				break;
+			case 'I':
+				dmats[imat] = I;
+				basis_sets[imat] = obs;
+				break;
+			case 'R':
+				dmats[imat] = R;
+				basis_sets[imat] = ribs;
+				break;
+			case '0':
+				dmats[imat] = zero;
+				basis_sets[imat] = obs;
+				break;
+			default:
+				cout << densmats[iset] << endl;
+				sleep(1);
+				assert(false);
+				break;
+			}
+		}
 
 
-    //#############################################################################//
+		integral->set_basis(basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3]);
 
-    if(do_eri){
-    	timer.enter("ERI");
-    	TwoBodyOper::type otype = cf->tbint_type_eri();
-    	// Compute and tranform the integrals
-    	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-    	compute_full_trans_ints(
-    			descr, otype,
-    			prefix + densmats + "g", tmpdir,
-    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-    			dmats[0], dmats[1], dmats[2], dmats[3],
-    			kit
-    	);
-    	timer.exit("ERI");
-    }
-    if(do_f12){
-    	timer.enter("F12");
-    	TwoBodyOper::type otype = cf->tbint_type_f12();
-    	// Compute and tranform the integrals
-    	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-    	compute_full_trans_ints(
-    			descr, otype,
-    			prefix + densmats + "F", tmpdir,
-    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-    			dmats[0], dmats[1], dmats[2], dmats[3],
-    			kit
-    	);
-    	timer.exit("F12");
-    }
-    if(do_f12g12){
-    	timer.enter("F12G12");
-    	TwoBodyOper::type otype = cf->tbint_type_f12eri();
-    	// Compute and tranform the integrals
-    	Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-    	compute_full_trans_ints(
-    			descr, otype,
-    			prefix + densmats + "Fg", tmpdir,
-    			basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-    			dmats[0], dmats[1], dmats[2], dmats[3],
-    			kit
-    	);
-    	timer.exit("F12G12");
+		//#############################################################################//
+
+		if(do_eri){
+			timer.enter("ERI");
+			TwoBodyOper::type otype = cf->tbint_type_eri();
+			// Compute and tranform the integrals
+			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+			compute_full_trans_ints(
+					descr, otype,
+					prefix + densmats[iset] + "g", tmpdir,
+					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+					dmats[0], dmats[1], dmats[2], dmats[3],
+					kit
+			);
+			timer.exit("ERI");
+		}
+		if(do_f12){
+			timer.enter("F12");
+			TwoBodyOper::type otype = cf->tbint_type_f12();
+			// Compute and tranform the integrals
+			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+			compute_full_trans_ints(
+					descr, otype,
+					prefix + densmats[iset] + "F", tmpdir,
+					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+					dmats[0], dmats[1], dmats[2], dmats[3],
+					kit
+			);
+			timer.exit("F12");
+		}
+		if(do_f12g12){
+			timer.enter("F12G12");
+			TwoBodyOper::type otype = cf->tbint_type_f12eri();
+			// Compute and tranform the integrals
+			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+			compute_full_trans_ints(
+					descr, otype,
+					prefix + densmats[iset] + "Fg", tmpdir,
+					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+					dmats[0], dmats[1], dmats[2], dmats[3],
+					kit
+			);
+			timer.exit("F12G12");
+		}
     }
 
     //=========================================================//

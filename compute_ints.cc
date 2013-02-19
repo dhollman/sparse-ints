@@ -340,7 +340,7 @@ sparse_ints::compute_full_trans_ints(
 		ifstream i;
 		string fname = prefix + ".bin";
 		ofstream o(fname.c_str(), ios::out | ios::binary);
-		// TODO !!! change this when using multiple basis sets!!!
+		//write_header(o, bs1, bs2, bs3, bs4, MaxAbs);
 		write_header(o, bs1, opts);
 		for(int inode = 1; inode < msg->n(); ++inode){
 			{
