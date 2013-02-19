@@ -138,20 +138,19 @@ FullTransComputeThread::run(){
 
 	// Compute stuff until there's no more work left
 	timer.enter("trans1q2q", threadnum_);
+	bool ignore_symmetry = false;
 	bool bs3_eq_bs4 = basis3_ == basis4_;
-	bool bs1_eq_bs2 = false; //basis1_ == basis2_;
+	bool bs1_eq_bs2 = basis1_ == basis2_;
 	while(shellpairs.get_task(sh3, sh4)){
 		DBG_MSG("Got task compute pair (" << sh3 << ", " << sh4 << ")");
-		for_each(iperm, (bs3_eq_bs4 ? 2 : 1)){
+		for_each(iperm, ((ignore_symmetry && bs3_eq_bs4 && sh3 != sh4) ? 2 : 1)){
 			if(iperm == 1){
-				if(sh3 == sh4)
-					continue;
 				int shtmp = sh3;
 				sh3 = sh4;
 				sh4 = shtmp;
 			}
-			const int nbf3 = basis3_->shell(sh3).nfunction();
-			const int nbf4 = basis4_->shell(sh4).nfunction();
+			int nbf3 = basis3_->shell(sh3).nfunction();
+			int nbf4 = basis4_->shell(sh4).nfunction();
 			int nbfpairs = nbf3*nbf4;
 			const double* buffer = inteval_->buffer(otype_);
 
@@ -173,8 +172,9 @@ FullTransComputeThread::run(){
 			// Do the transformation of index 1.
 			//   Loop over all shells for indexes 1 and 2
 			for_each(sh1,nsh1){
-				int sh2max = bs1_eq_bs2 ? sh1+1 : nsh2;
-				for_each(sh2,sh1+1){
+				//int sh2max = (bs1_eq_bs2 && !ignore_symmetry) ? sh1+1 : nsh2;
+				int sh2max = (bs1_eq_bs2) ? sh1+1 : nsh2;
+				for_each(sh2,sh2max){
 					(*quartets_computed_)++;
 
 					// Compute the shell
@@ -201,15 +201,13 @@ FullTransComputeThread::run(){
 							for_each(ibf1,nbf1tot){
 								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * buffer[bf1234]);
 							}
-							/*
-							//if(bs1_eq_bs2 && sh1 != sh2) {
-							if(sh1 != sh2) {
-								for_each(ibf2,nbf2tot){
-									ints1q[bfpair].accumulate_element(ibf2, idx1, P2_(ibf2, idx2) * buffer[bf1234]);
+							//if(bs1_eq_bs2 && sh1 != sh2 && !ignore_symmetry) {
+							if(bs1_eq_bs2 && sh1 != sh2){
+								for_each(ibf1,nbf1tot){
+									// Utilize the M-N symmetry in (MN|RS)
+									ints1q[bfpair].accumulate_element(ibf1, idx1, P1_(ibf1, idx2) * buffer[bf1234]);
 								}
 							}
-							//}
-							*/
 							bf1234++;
 						}
 						/*
@@ -223,47 +221,92 @@ FullTransComputeThread::run(){
 
 			DBG_MSG("  Starting 2q transform")
 
-			const int sh3begin = basis3_->shell_to_function(sh3);
 			timer.enter("2q", threadnum_);
-			for_each(ish1,nsh1, jsh3,nsh3){
-				const int nbf1 = basis1_->shell(ish1).nfunction();
-				const int outernbf3 = basis3_->shell(jsh3).nfunction();
-				const int bf1off = basis1_->shell_to_function(ish1);
-				const int bf3off = basis3_->shell_to_function(jsh3);
-				vector<RefSCMatrix> ints2q;
-				RefSCDimension dim4(new SCDimension(nbf4));
-				for_each(bf1,nbf1, outerbf3,outernbf3){
-					int ibf1 = bf1off+bf1;
-					int jbf3 = bf3off+outerbf3;
-					RefSCMatrix tmp2q = kit_->matrix(bsdim2_, dim4);
-					tmp2q.assign(0.0);
-					for_each(bf2n,nbf2tot, innerbf3,nbf3, bf4,nbf4){
-						int idx3 = sh3begin + innerbf3;
-						int pair1q = innerbf3*nbf4 + bf4;
-						test_bf4[idx3]++;
-						tmp2q.accumulate_element(bf2n, bf4, P3_.get_element(jbf3, idx3) * ints1q[pair1q].get_element(ibf1, bf2n));
+			for_each(iperm2, ((!ignore_symmetry && bs3_eq_bs4 && sh3 != sh4) ? 2 : 1)){
+				if(iperm2 == 1){
+					int shtmp = sh3;
+					sh3 = sh4;
+					sh4 = shtmp;
+				}
+				nbf3 = basis3_->shell(sh3).nfunction();
+				nbf4 = basis4_->shell(sh4).nfunction();
+				const int sh3begin = basis3_->shell_to_function(sh3);
+				const int sh4begin = basis4_->shell_to_function(sh3);
+				int nbfpairs = nbf3*nbf4;
+				for_each(ish1,nsh1, jsh3,nsh3){
+					const int nbf1 = basis1_->shell(ish1).nfunction();
+					const int outernbf3 = basis3_->shell(jsh3).nfunction();
+					const int bf1off = basis1_->shell_to_function(ish1);
+					const int bf3off = basis3_->shell_to_function(jsh3);
+					vector<RefSCMatrix> ints2qS, ints2qR;
+					RefSCDimension dim3(new SCDimension(nbf3));
+					RefSCDimension dim4(new SCDimension(nbf4));
+					for_each(bf1,nbf1, outerbf3,outernbf3){
+						int ibf1 = bf1off+bf1;
+						int jbf3 = bf3off+outerbf3;
+						RefSCMatrix tmp2qS = kit_->matrix(bsdim2_, dim4);
+						tmp2qS.assign(0.0);
+						/*
+						RefSCMatrix tmp2qR;
+						if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
+							tmp2qR = kit_->matrix(bsdim2_, dim3);
+							tmp2qR.assign(0.0);
+						}*/
+						for_each(bf2n,nbf2tot, innerbf3,nbf3, bf4,nbf4){
+							int idx3 = sh3begin + innerbf3;
+							int pair1q = innerbf3*nbf4 + bf4;
+							tmp2qS.accumulate_element(bf2n, bf4, P3_.get_element(jbf3, idx3) * ints1q[pair1q].get_element(ibf1, bf2n));
+							test_bf4[idx3]++;
+							/*
+							if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
+								// Exploit the R-S symmetry in (MN|RS).
+								// Note that since pair1q is an RS combined index, we want to use R<=S just like we did in the 1q transform
+								int idx4 = sh4begin + bf4;
+								test_bf4[idx4]++;
+								tmp2qR.accumulate_element(bf2n, innerbf3, P3_.get_element(jbf3, idx4) * ints1q[pair1q].get_element(ibf1, bf2n));
+							}
+							*/
+						}
+						ints2qS.push_back(tmp2qS);
+						assert_equal(ints2qS.size()-1, bf1*outernbf3 + outerbf3);
+						/*
+						if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
+							ints2qR.push_back(tmp2qR);
+							assert_equal(ints2qR.size()-1, bf1*outernbf3 + outerbf3);
+						}
+						*/
 					}
-					ints2q.push_back(tmp2q);
-					assert_equal(ints2q.size()-1, bf1*outernbf3 + outerbf3);
+					// TODO also, don't send blocks of 0's
+					/*double maxval = 0;
+					for_each(itmppair, nbf1*outernbf3){
+						if(maxval < ints2q[itmppair]->maxabs()) maxval = ints2q[itmppair]->maxabs();
+					}
+					if(maxval > 1e-15) DBG_MSG("  Sending shell pair " << ish1 << ", " << jsh3 << ": " << maxval)
+					assert_equal(ints2q.size(), nbf1*outernbf3);
+					*/
+					send_thread_->distribute_shell_pair(ints2qS, ish1, jsh3, sh4, threadnum_);
+					/*
+					if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
+						send_thread_->distribute_shell_pair(ints2qR, ish1, jsh3, sh3, threadnum_);
+					}
+					*/
 				}
-				// TODO also, don't send blocks of 0's
-				double maxval = 0;
-				for_each(itmppair, nbf1*outernbf3){
-					if(maxval < ints2q[itmppair]->maxabs()) maxval = ints2q[itmppair]->maxabs();
-				}
-				if(maxval > 1e-15) DBG_MSG("  Sending shell pair " << ish1 << ", " << jsh3 << ": " << maxval)
-				assert_equal(ints2q.size(), nbf1*outernbf3);
-				send_thread_->distribute_shell_pair(ints2q, ish1, jsh3, sh4, threadnum_);
 			}
 			timer.exit("2q", threadnum_);
 		} // end loop over permutations
 	} // End while get_task
 	timer.exit("trans1q2q", threadnum_);
 
+	/*
 	msg->sum(test_bf4, nbf4tot);
-	for_each(idx4, nbf4tot){
-		assert_equal(test_bf4[idx4], nbf1tot*nbf2tot*nbf3tot*nbf4tot);
+	if(msg->me() == MASTER){
+		//PRINT_LIST(test_bf4, nbf4tot, 7, 10);
+		for_each(idx4, nbf4tot){
+			//assert_equal(test_bf4[idx4], (nbf1tot*(nbf3tot-1))/2 * nbf2tot*nbf4tot);
+			assert_equal(test_bf4[idx4], nbf1tot*nbf3tot * nbf2tot*nbf4tot);
+		}
 	}
+	*/
 
 	//=========================================================//
 
@@ -307,7 +350,6 @@ FullTransComputeThread::run(){
 
 	// Get our thread's next shell assignment
 	int sh1 = 0;
-	if(msg->me() == 1) P2_.print("P2", cout);
 	while(recv_thread_->get_my_next_pair(sh1, sh3)){
 		DBG_MSG("Got local pair (" << sh1 << "," << sh3 << ") to work on");
 		const int nbf1 = basis1_->shell(sh1).nfunction();
@@ -321,6 +363,8 @@ FullTransComputeThread::run(){
 			int ipair = bf1*nbf3 + bf3;
 			RefSCMatrix ints3q = kit_->matrix(bsdim2_, bsdim4_);
 			RefSCMatrix ints4q = kit_->matrix(bsdim2_, bsdim4_);
+			assert(P2_.nonnull());
+			assert(ints24[ipair].nonnull());
 			ints3q = P2_ * ints24[ipair];
 			ints4q = ints3q * P4_;
 			/*
@@ -639,8 +683,8 @@ SendThread::run()
 	}
 	msg->sum(pairs_sent);
 	const int nsh1 = basis1_->nshell();
-	const int nsh3 = basis1_->nshell();
-	const int nsh4 = basis1_->nshell();
+	const int nsh3 = basis3_->nshell();
+	const int nsh4 = basis4_->nshell();
 	assert_equal(pairs_sent, nsh1 * nsh3 * nsh3 * nsh4);
 	assert_equal(queue_size_, 0);
 

@@ -89,15 +89,17 @@ all: (
    {densmats} = { 
        %PIQI
        %QIPI
-       %IIIP
-       %IPII
-       %PIII
+       IIIP
+       IPII
+       PIII
        %PQPQ
-       %IIPI
+       IIPI
        %IIII
        %PQQP
        %QPPQ
-       OOOO
+       %OOOO
+       %POPO
+       %IRIR
    }
    molname = $:molname
  )

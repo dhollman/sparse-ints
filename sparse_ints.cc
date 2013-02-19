@@ -267,8 +267,11 @@ main(int argc, char** argv) {
     if(need_O){
     	// Get O
     	RefSCMatrix Ccabs = cabs_space->coefs();
-    	RefSymmSCMatrix O(Ccabs->rowdim(), Ccabs->kit());
-    	O.accumulate_symmetric_product(Ccabs);
+		RefSymmSCMatrix Otmp = Ccabs->kit()->symmmatrix(Ccabs->rowdim());
+    	Otmp.accumulate_symmetric_product(Ccabs);
+    	assert(Otmp.nblock() == 1);
+    	O = kit->symmmatrix(ribs->basisdim());
+    	O.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Otmp.block(0), "main\n")->get_data());
     }
 
     // Mostly for testing, but can be used as a cheesy way to do half-transforms
@@ -280,7 +283,7 @@ main(int argc, char** argv) {
     R->shift_diagonal(1.0);
     RefSymmSCMatrix zero = kit->symmmatrix(obs->basisdim());
     zero.assign(0.0);
-    P->print("P");
+    //P->print("P");
 
     RefSymmSCMatrix dmats[4];
     Ref<GaussianBasisSet> basis_sets[4];
