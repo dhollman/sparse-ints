@@ -339,7 +339,7 @@ main(int argc, char** argv) {
 			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
 			compute_full_trans_ints(
 					descr, otype,
-					prefix + densmats[iset] + "g", tmpdir,
+					prefix, densmats[iset] + "g", tmpdir,
 					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
 					dmats[0], dmats[1], dmats[2], dmats[3],
 					kit
@@ -353,7 +353,7 @@ main(int argc, char** argv) {
 			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
 			compute_full_trans_ints(
 					descr, otype,
-					prefix + densmats[iset] + "F", tmpdir,
+					prefix, densmats[iset] + "F", tmpdir,
 					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
 					dmats[0], dmats[1], dmats[2], dmats[3],
 					kit
@@ -367,7 +367,7 @@ main(int argc, char** argv) {
 			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
 			compute_full_trans_ints(
 					descr, otype,
-					prefix + densmats[iset] + "Fg", tmpdir,
+					prefix, densmats[iset] + "Fg", tmpdir,
 					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
 					dmats[0], dmats[1], dmats[2], dmats[3],
 					kit

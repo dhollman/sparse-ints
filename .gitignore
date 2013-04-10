@@ -5,4 +5,5 @@ vars.zsh
 matrices
 sparse_ints
 Makefile
-
+*.dSYM
+output.dat

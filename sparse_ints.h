@@ -143,6 +143,10 @@ typedef struct {
 	bool verbose;
 	bool max_only;
 	bool dynamic;
+	bool do_average;
+	bool do_maxabs;
+	bool do_stddev;
+	bool do_median;
 } SparseIntOptions;
 
 using namespace sc;

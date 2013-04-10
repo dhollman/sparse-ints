@@ -12,6 +12,8 @@ using namespace std;
 using namespace sc;
 using namespace sparse_ints;
 
+#define QUEUE_MAX_ENABLED 0
+
 size_t SendThread::max_queue_size = size_t(2e8);
 
 #define assert_equal(a, b) \
@@ -156,24 +158,14 @@ FullTransComputeThread::run(){
 
 			// Initialize the matrices that will hold the 1Q transformed integrals
 			vector<RefSCMatrix> ints1q;
-			//double ***ints1q = new double**[nbfpairs];
 			for_each(ipair, nbfpairs){
 				ints1q.push_back(kit_->matrix(bsdim1_, bsdim2_));
 				ints1q[ipair].assign(0.0);
-				/*
-				ints1q[ipair] = new double*[nbf1tot];
-				for_each(ibf1, nbf1tot){
-					ints1q[ipair][ibf1] = new double[nbf2tot];
-					for_each(ibf2, nbf2tot){
-						ints1q[ipair][ibf1][ibf2] = 0.0;
-					}
-				}*/
 			}
 			// Do the transformation of index 1.
 			//   Loop over all shells for indexes 1 and 2
 			for_each(sh1,nsh1){
-				//int sh2max = (bs1_eq_bs2 && !ignore_symmetry) ? sh1+1 : nsh2;
-				int sh2max = (bs1_eq_bs2) ? sh1+1 : nsh2;
+				int sh2max = (bs1_eq_bs2 && !ignore_symmetry) ? sh1+1 : nsh2;
 				for_each(sh2,sh2max){
 					(*quartets_computed_)++;
 
@@ -181,7 +173,6 @@ FullTransComputeThread::run(){
 					timer.enter("compute shell", threadnum_);
 					inteval_->compute_shell(sh1, sh2, sh3, sh4);
 					timer.exit("compute shell", threadnum_);
-
 
 					// Get the number of functions in the respective shells
 					int nbf1 = basis1_->shell(sh1).nfunction();
@@ -201,8 +192,7 @@ FullTransComputeThread::run(){
 							for_each(ibf1,nbf1tot){
 								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * buffer[bf1234]);
 							}
-							//if(bs1_eq_bs2 && sh1 != sh2 && !ignore_symmetry) {
-							if(bs1_eq_bs2 && sh1 != sh2){
+							if(bs1_eq_bs2 && sh1 != sh2 && !ignore_symmetry){
 								for_each(ibf1,nbf1tot){
 									// Utilize the M-N symmetry in (MN|RS)
 									ints1q[bfpair].accumulate_element(ibf1, idx1, P1_(ibf1, idx2) * buffer[bf1234]);
@@ -210,10 +200,6 @@ FullTransComputeThread::run(){
 							}
 							bf1234++;
 						}
-						/*
-						// Better?:
-						//g12->assign(&(buffer[bf1*nbf2*nbf3*nbf4 + bf2*nbf3*nbf4]));
-						 */
 					}
 					timer.exit("1q", threadnum_);
 				} // end loop over all shell 2
@@ -246,50 +232,16 @@ FullTransComputeThread::run(){
 						int jbf3 = bf3off+outerbf3;
 						RefSCMatrix tmp2qS = kit_->matrix(bsdim2_, dim4);
 						tmp2qS.assign(0.0);
-						/*
-						RefSCMatrix tmp2qR;
-						if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
-							tmp2qR = kit_->matrix(bsdim2_, dim3);
-							tmp2qR.assign(0.0);
-						}*/
 						for_each(bf2n,nbf2tot, innerbf3,nbf3, bf4,nbf4){
 							int idx3 = sh3begin + innerbf3;
 							int pair1q = innerbf3*nbf4 + bf4;
 							tmp2qS.accumulate_element(bf2n, bf4, P3_.get_element(jbf3, idx3) * ints1q[pair1q].get_element(ibf1, bf2n));
 							test_bf4[idx3]++;
-							/*
-							if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
-								// Exploit the R-S symmetry in (MN|RS).
-								// Note that since pair1q is an RS combined index, we want to use R<=S just like we did in the 1q transform
-								int idx4 = sh4begin + bf4;
-								test_bf4[idx4]++;
-								tmp2qR.accumulate_element(bf2n, innerbf3, P3_.get_element(jbf3, idx4) * ints1q[pair1q].get_element(ibf1, bf2n));
-							}
-							*/
 						}
 						ints2qS.push_back(tmp2qS);
 						assert_equal(ints2qS.size()-1, bf1*outernbf3 + outerbf3);
-						/*
-						if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
-							ints2qR.push_back(tmp2qR);
-							assert_equal(ints2qR.size()-1, bf1*outernbf3 + outerbf3);
-						}
-						*/
 					}
-					// TODO also, don't send blocks of 0's
-					/*double maxval = 0;
-					for_each(itmppair, nbf1*outernbf3){
-						if(maxval < ints2q[itmppair]->maxabs()) maxval = ints2q[itmppair]->maxabs();
-					}
-					if(maxval > 1e-15) DBG_MSG("  Sending shell pair " << ish1 << ", " << jsh3 << ": " << maxval)
-					assert_equal(ints2q.size(), nbf1*outernbf3);
-					*/
 					send_thread_->distribute_shell_pair(ints2qS, ish1, jsh3, sh4, threadnum_);
-					/*
-					if(bs3_eq_bs4 && sh3 != sh4 && !ignore_symmetry){
-						send_thread_->distribute_shell_pair(ints2qR, ish1, jsh3, sh3, threadnum_);
-					}
-					*/
 				}
 			}
 			timer.exit("2q", threadnum_);
@@ -297,16 +249,6 @@ FullTransComputeThread::run(){
 	} // End while get_task
 	timer.exit("trans1q2q", threadnum_);
 
-	/*
-	msg->sum(test_bf4, nbf4tot);
-	if(msg->me() == MASTER){
-		//PRINT_LIST(test_bf4, nbf4tot, 7, 10);
-		for_each(idx4, nbf4tot){
-			//assert_equal(test_bf4[idx4], (nbf1tot*(nbf3tot-1))/2 * nbf2tot*nbf4tot);
-			assert_equal(test_bf4[idx4], nbf1tot*nbf3tot * nbf2tot*nbf4tot);
-		}
-	}
-	*/
 
 	//=========================================================//
 
@@ -323,8 +265,6 @@ FullTransComputeThread::run(){
 	timer.enter("half-trans sync", threadnum_);
 	// Tell the send thread that we are done computing data
 	DBG_MSG("No more pairs, sending ComputeThreadDone message.");
-	//MessageGrp::MessageHandle hndl;
-	//msg->nb_sendt(msg->me(), NeedsSend, threadnum_, hndl);
 	msg->sendt(msg->me(), NeedsSend, threadnum_);
 
 	// Wait until all of the data is ready and available
@@ -339,12 +279,9 @@ FullTransComputeThread::run(){
 	//=========================================================//
 	// Open the output file for writing
 	timer.enter("trans3q4q", threadnum_);
-	ofstream o;
-	{
-		stringstream sstr;
-		sstr << prefix_ << msg->me() << "_" << threadnum_ << ".bin";
-		o.open(sstr.str().c_str(), ios::binary | ios::out);
-	}
+	char name[512];
+	sprintf(name, "%s%d_%d.bin", prefix_.c_str(), msg->me(), threadnum_);
+	ofstream o(name, ios::binary | ios::out);
 
 	//=========================================================//
 
@@ -367,15 +304,6 @@ FullTransComputeThread::run(){
 			assert(ints24[ipair].nonnull());
 			ints3q = P2_ * ints24[ipair];
 			ints4q = ints3q * P4_;
-			/*
-			ints3q.assign(0.0);
-			ints4q.assign(0.0);
-			for_each(idx2,nbf2tot, idx4,nbf4tot, idx2b, nbf2tot){
-				DBG_MSG("ints3q(" << idx2 << ", " << idx4 << ")[" << ints3q(idx2,idx4) << "] += P2_(" << idx2b <<", " << idx2 << ")[" << P2_(idx2b,idx2) << "] * ints24(" << idx2b << ", " << idx4 << ")[" << ints24[ipair](idx2b,idx4) << "]")
-				ints3q.accumulate_element(idx2,idx4, P2_.get_element(idx2b,idx2)*ints24[ipair](idx2b,idx4));
-			}
-			for_each(idx2,nbf2tot, idx4,nbf4tot, idx4b, nbf4tot) ints4q.accumulate_element(idx2,idx4, P4_.get_element(idx4b,idx4)*ints3q(idx2,idx4));
-			*/
 			if(opts.max_only){
 				// TODO average, stddev, median, pair max etc (all at once, and write all files in one go)
 				maxvals[ipair] = ints4q->maxabs();
@@ -399,7 +327,6 @@ FullTransComputeThread::run(){
 			o.write((char*)&maxvals, nbfpairs*sizeof(value_t));
 		}
 	}
-	o.flush();
 	o.close();
 
 	timer.exit("trans3q4q", threadnum_);
@@ -538,7 +465,7 @@ SendThread::SendThread(
 			if((msg->n()-1)%10 != 0){
 				cout << endl;
 			}
-			cout << "Memory requirement per node:" << endl;
+			cout << "(Loose lower bound of) Memory requirement per node:" << endl;
 			int nperpair = basis1_->nbasis() * basis2_->nbasis();
 			for_each(ind, msg->n()-1){
 				int size = bf_per_node_[ind] * sizeof(double) * nperpair;
@@ -582,6 +509,7 @@ SendThread::run()
 		}
 		while(true){
 
+#if QUEUE_MAX_ENABLED
 			// Send a message indicating that we have room for more work
 			MessageGrp::MessageHandle hndl;
 			handles.push_back(hndl);
@@ -589,6 +517,7 @@ SendThread::run()
 			sizes.push_back(available);
 			DBG_MSG("Telling compute nodes that I have " << available << " bytes available.")
 			msg->nb_sendt(msg->me(), QueueHasSpace, &available, 1, hndl);
+#endif
 
 			// Receive a message indicating that we can pop some work off of the queue
 			int task_code = -1;
@@ -653,8 +582,6 @@ SendThread::run()
 				msg->sendt(dest_node, IndexData, idxs, 5);
 				msg->sendt(dest_node, PairData, t.data, t.ndata);
 
-				delete[] t.data;
-
 				// Update the queue size
 				DBG_MSG("Locking queue")
 				queue_lock_->lock();
@@ -663,6 +590,9 @@ SendThread::run()
 				queue_lock_->unlock();
 
 				++pairs_sent;
+
+				delete[] t.data;
+
 
 			}
 
@@ -697,6 +627,9 @@ SendThread::distribute_shell_pair(
 	int threadnum
 )
 {
+	assert(ish1 >= 0);
+	assert(jsh3 >= 0);
+	assert(sh4 >= 0);
 	// Note that this is called by the Compute thread, not the Comm thread!
 	timer.enter("distribute prepare", threadnum);
 	DataSendTask task;
@@ -720,14 +653,14 @@ SendThread::distribute_shell_pair(
 		}
 	}
 	timer.exit("distribute prepare", threadnum);
-	if(maxval > 1e-15) DBG_MSG("  Sending shell pair " << ish1 << ", " << jsh3 << ": " << maxval)
 
 
-	size_t space_required = sizeof(DataSendTask) + task.ndata*sizeof(double);
+	timer.enter("queue wait", threadnum);
+	int space_required = int(sizeof(DataSendTask) + task.ndata*sizeof(double));
+#if QUEUE_MAX_ENABLED
 	assert(space_required < max_queue_size);
 
 	// Wait until there is enough space on the queue.
-	timer.enter("queue wait", threadnum);
 	int space_amt = 0;
 	DBG_MSG("Waiting for space in queue.")
 	while(space_amt < space_required){
@@ -740,6 +673,7 @@ SendThread::distribute_shell_pair(
 	//handles_.push_back(tmphndl);
 	// TODO Think through the possibility of a race condition caused by this and SendThread both posting conflicting QueueHasSpace messages
 	msg->nb_sendt(msg->me(), QueueHasSpace, &space_left, 1, tmphndl);
+#endif
 
 	// Acquire the queue lock.
 	queue_lock_->lock();
@@ -753,9 +687,12 @@ SendThread::distribute_shell_pair(
 	queue_lock_->unlock();
 
 	// Post a needs send message
+
+	// The MessageHandle won't be used again unless we need to call
+	//   msg->wait() or something, so it's safe to let it be deleted.
 	MessageGrp::MessageHandle hndl;
-	//handles_.push_back(hndl);
 	msg->nb_sendt(msg->me(), NeedsSend, &needs_send_message_, 1, hndl);
+
 
 }
 

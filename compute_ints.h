@@ -15,21 +15,10 @@ namespace sparse_ints{
 
 
 void
-compute_half_trans_ints(
-        const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
-        sc::TwoBodyOper::type* otypes, std::string* descs, int num_types,
-        std::string prefix, std::string tmpdir,
-        const sc::Ref<sc::GaussianBasisSet>& bs13,
-        const sc::Ref<sc::GaussianBasisSet>& bs24,
-    	DensityMap dens_pairs,
-    	const sc::Ref<sc::LocalSCMatrixKit>& inkit = (sc::Ref<sc::LocalSCMatrixKit>)0
-);
-
-void
 compute_full_trans_ints(
         const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
         sc::TwoBodyOper::type otype,
-        std::string prefix, std::string tmpdir,
+        std::string prefix, std::string matname, std::string tmpdir,
         const sc::Ref<sc::GaussianBasisSet>& bs1,
         const sc::Ref<sc::GaussianBasisSet>& bs2,
         const sc::Ref<sc::GaussianBasisSet>& bs3,

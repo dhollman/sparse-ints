@@ -240,7 +240,7 @@ class SendThread : public FullTransCommThread {
 
 	sc::Ref<sc::ThreadLock> comm_lock_;
 
-	int queue_size_;
+	long queue_size_;
 	//size_t queue_size_;
 	static size_t max_queue_size;
 
