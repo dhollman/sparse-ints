@@ -93,100 +93,108 @@ HalfTransComputeThread::run()
 	for_each(ity, num_types_){
 		buffers[ity] = inteval_->buffer(otypes_[ity]);
 	}
+	bool bs1eqbs3 = basis1_ == basis3_;
 	while(shellpairs.get_task(sh1, sh3)) {
-		//DBG_MSG("Computing shell pair (" << sh1 << ", " << sh3 << ").")
-		nsh2 = basis2_->nshell();
-		nsh4 = basis4_->nshell();
-		(*quartets_processed_) += nsh2*nsh4;
-		identifier[0] = (idx_t)sh1;
-		identifier[2] = (idx_t)sh3;
-		const int nbf1 = basis1_->shell(sh1).nfunction();
-		const int nbf3 = basis3_->shell(sh3).nfunction();
-
-		// Set up some stuff for each pair
-		idx_t max_idents[4*num_types_];
-		int nbfpairs = nbf1*nbf3;
-		vector<vector<RefSCMatrix> > halft(num_types_);
-		for_each(ity, num_types_){
-			vector<RefSCMatrix> tmpv(nbfpairs);
-			halft[ity] = tmpv;
-			for_each(ipair, nbfpairs){
-				halft[ity][ipair] = kit_->matrix(dim1_, dim2_);
-				halft[ity][ipair].assign(0.0);
+		// TODO utilize permutational symmetry when possible
+		for(int iperm = 0; iperm < ((sh1==sh3 || !bs1eqbs3) ? 1 : 2); ++iperm){
+			if(iperm == 1){
+				int tmp = sh3;
+				sh3 = sh1;
+				sh1 = tmp;
 			}
-		}
-		for(sh2 = 0; sh2 < nsh2; ++sh2){
-			for(sh4 = 0; sh4 < nsh4; ++sh4){
-				identifier[1] = (idx_t)sh2;
-				identifier[3] = (idx_t)sh4;
-				const int nbf2 = basis2_->shell(sh2).nfunction();
-				const int bfoff2 = basis2_->shell_to_function(sh2);
-				const int nbf4 = basis4_->shell(sh4).nfunction();
-				const int bfoff4 = basis4_->shell_to_function(sh4);
+			nsh2 = basis2_->nshell();
+			nsh4 = basis4_->nshell();
+			(*quartets_processed_) += nsh2*nsh4;
+			identifier[0] = (idx_t)sh1;
+			identifier[2] = (idx_t)sh3;
+			const int nbf1 = basis1_->shell(sh1).nfunction();
+			const int nbf3 = basis3_->shell(sh3).nfunction();
 
-				// Compute the shell
-				if (opts.debug) {
-					lock_->lock();
-					cout << "        Computing shell quartet (" << sh1
-							<< "," << sh2 << "|" << sh3 << "," << sh4
-							<< ") on node "  << msg->me() << ", thread "
-							<< threadnum_ << "." << endl;
-					lock_->unlock();
-				}
-				inteval_->compute_shell(sh1, sh2, sh3, sh4);
-
-
-				// Loop over basis functions and store
-				int nfunc = nbf1*nbf2*nbf3*nbf4;
-				for_each(ity, num_types_){
-					const double* buff = buffers[ity];
-					int bf1234 = 0;
-					DBG_MSG("::nbf1="<<nbf1<<", nbf3="<<nbf3)
-					for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
-						int bfpair = bf1*nbf3 + bf3;
-						DBG_MSG("::  sh1="<<sh1<<", sh3="<<sh3<<", bfpair=" << bfpair << ", bf2="<<bf2<<", bf4="<<bf4<<", value="<<buff[bf1234]);
-						halft[ity][bfpair].set_element(bfoff2+bf2, bfoff4+bf4, buff[bf1234]);
-						bf1234++;
-					}
-				} // end loop over types
-
-			} // end loop over index 4
-		} // end loop over index 2
-		// Now transform and find maxima
-		iterate(mapit_, dens_pairs_){
-			string pairname = (*mapit_).first;
-			RefSymmSCMatrix P1 = (*mapit_).second.first;
-			RefSymmSCMatrix P2 = (*mapit_).second.second;
+			// Set up some stuff for each pair
+			idx_t max_idents[4*num_types_];
+			int nbfpairs = nbf1*nbf3;
+			vector<vector<RefSCMatrix> > halft(num_types_);
 			for_each(ity, num_types_){
-				value_t tmpval[nbfpairs];
+				vector<RefSCMatrix> tmpv(nbfpairs);
+				halft[ity] = tmpv;
 				for_each(ipair, nbfpairs){
-					DBG_MSG("Transforming ints for bf pair " << ipair
-							<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
-
-					// First quarter transform
-					RefSCMatrix transtmp = P1 * halft[ity][ipair];
-					DBG_MSG(":: First quarter transform done for " << pairname)
-
-					// Second quarter transform
-					RefSCMatrix myhalf = transtmp * P2;
-					DBG_MSG(":: Second quarter transform done for " << pairname)
-
-					// get the maximum absolute value
-					//tmpval[ipair] = max_abs<value_t>(myhalf);
-					tmpval[ipair] = myhalf->maxabs();
+					halft[ity][ipair] = kit_->matrix(dim1_, dim2_);
+					halft[ity][ipair].assign(0.0);
 				}
-				if (opts.debug) {
-					lock_->lock();
-					cout << "        Writing maximum entries for " << pairname
-							<< " for shell pair (" << sh1 << ", " << sh3
-							<< ") on node " << msg->me() << ", thread "
-							<< threadnum_ << "." << endl;
-					lock_->unlock();
-				}
-				o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
-				o[pairname][ity].write((char*)&tmpval, nbfpairs*sizeof(value_t));
 			}
-		} // End loop over density matrix pairs
+			for(sh2 = 0; sh2 < nsh2; ++sh2){
+				for(sh4 = 0; sh4 < nsh4; ++sh4){
+					identifier[1] = (idx_t)sh2;
+					identifier[3] = (idx_t)sh4;
+					const int nbf2 = basis2_->shell(sh2).nfunction();
+					const int bfoff2 = basis2_->shell_to_function(sh2);
+					const int nbf4 = basis4_->shell(sh4).nfunction();
+					const int bfoff4 = basis4_->shell_to_function(sh4);
+
+					// Compute the shell
+					if (opts.debug) {
+						lock_->lock();
+						cout << "        Computing shell quartet (" << sh1
+								<< "," << sh2 << "|" << sh3 << "," << sh4
+								<< ") on node "  << msg->me() << ", thread "
+								<< threadnum_ << "." << endl;
+						lock_->unlock();
+					}
+					inteval_->compute_shell(sh1, sh2, sh3, sh4);
+
+
+					// Loop over basis functions and store
+					int nfunc = nbf1*nbf2*nbf3*nbf4;
+					for_each(ity, num_types_){
+						const double* buff = buffers[ity];
+						int bf1234 = 0;
+						DBG_MSG("::nbf1="<<nbf1<<", nbf3="<<nbf3)
+						for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+							int bfpair = bf1*nbf3 + bf3;
+							DBG_MSG("::  sh1="<<sh1<<", sh3="<<sh3<<", bfpair=" << bfpair << ", bf2="<<bf2<<", bf4="<<bf4<<", value="<<buff[bf1234]);
+							halft[ity][bfpair].set_element(bfoff2+bf2, bfoff4+bf4, buff[bf1234]);
+							bf1234++;
+						}
+					} // end loop over types
+
+				} // end loop over index 4
+			} // end loop over index 2
+			// Now transform and find maxima
+			iterate(mapit_, dens_pairs_){
+				string pairname = (*mapit_).first;
+				RefSymmSCMatrix P1 = (*mapit_).second.first;
+				RefSymmSCMatrix P2 = (*mapit_).second.second;
+				for_each(ity, num_types_){
+					value_t tmpval[nbfpairs];
+					for_each(ipair, nbfpairs){
+						DBG_MSG("Transforming ints for bf pair " << ipair
+								<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
+
+						// First quarter transform
+						RefSCMatrix transtmp = P1 * halft[ity][ipair];
+						DBG_MSG(":: First quarter transform done for " << pairname)
+
+						// Second quarter transform
+						RefSCMatrix myhalf = transtmp * P2;
+						DBG_MSG(":: Second quarter transform done for " << pairname)
+
+						// get the maximum absolute value
+						//tmpval[ipair] = max_abs<value_t>(myhalf);
+						tmpval[ipair] = myhalf->maxabs();
+					}
+					if (opts.debug) {
+						lock_->lock();
+						cout << "        Writing maximum entries for " << pairname
+								<< " for shell pair (" << sh1 << ", " << sh3
+								<< ") on node " << msg->me() << ", thread "
+								<< threadnum_ << "." << endl;
+						lock_->unlock();
+					}
+					o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
+					o[pairname][ity].write((char*)&tmpval, nbfpairs*sizeof(value_t));
+				}
+			} // End loop over density matrix pairs
+		} // End loop over permutations
 	} // End while get task
 
 	//=========================================================//

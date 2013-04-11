@@ -85,6 +85,7 @@ all: (
    do_f12g12 = no
    max_only = yes
    molname = $:molname
+   debug = yes
  )
 
 untrans: (

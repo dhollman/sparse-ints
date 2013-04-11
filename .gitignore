@@ -7,3 +7,5 @@ sparse_ints
 Makefile
 *.dSYM
 output.dat
+*.pyc
+*.pyo

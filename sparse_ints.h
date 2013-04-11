@@ -76,10 +76,10 @@ namespace sparse_ints {
 
 typedef enum BinfileContent {
 	AllInts = 0,
-	MaxAbs = 1,
-	Average = 2,
-	StdDev = 4,
-	Median = 8
+	MaxAbs = 2,
+	Average = 4,
+	StdDev = 8,
+	Median = 16
 } binfile_type;
 
 class MultiTimer {
