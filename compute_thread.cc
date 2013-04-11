@@ -34,15 +34,7 @@ size_t SendThread::max_queue_size = size_t(2e8);
 		print_lock->unlock(); \
 	}
 
-#define PRINT_LIST(list, length, width, nperline) \
-		for_each(ind, length){ \
-			cout << setw(width) << list[ind]; \
-			if((ind+1) % nperline == 0){ \
-				cout << endl; \
-			} \
-		} \
-		if (length % nperline != 0) \
-			cout << endl;
+
 
 /////////////////////////////////////////////////////////////////////////////
 // ComputeThread class

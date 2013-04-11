@@ -74,6 +74,14 @@ typedef struct {
 
 namespace sparse_ints {
 
+typedef enum BinfileContent {
+	AllInts = 0,
+	MaxAbs = 1,
+	Average = 2,
+	StdDev = 4,
+	Median = 8
+} binfile_type;
+
 class MultiTimer {
 	std::vector<sc::Ref<sc::RegionTimer> > rtimers_;
 	std::vector<sc::Timer> timers_;
@@ -143,10 +151,7 @@ typedef struct {
 	bool verbose;
 	bool max_only;
 	bool dynamic;
-	bool do_average;
-	bool do_maxabs;
-	bool do_stddev;
-	bool do_median;
+	binfile_type out_type;
 } SparseIntOptions;
 
 using namespace sc;

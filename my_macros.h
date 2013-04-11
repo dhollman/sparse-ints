@@ -81,3 +81,14 @@
 // For use with "assert(not_implemented)".  This is probably a bit too clever
 //    and should be avoided in public code...
 #define not_implemented false
+
+
+#define PRINT_LIST(list, length, width, nperline) \
+		for_each(ind, length){ \
+			cout << setw(width) << list[ind]; \
+			if((ind+1) % nperline == 0){ \
+				cout << endl; \
+			} \
+		} \
+		if (length % nperline != 0) \
+			cout << endl;

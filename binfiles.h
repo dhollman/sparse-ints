@@ -12,12 +12,6 @@
 #define BINFILES_H_
 
 
-typedef enum binfile_type {
-	MaxAbs = 2,
-	Average = 3,
-	StdDev = 4,
-	Median = 5
-} binfile_type;
 
 void write_header(
 	std::ofstream& o,
@@ -31,7 +25,7 @@ void write_header(
 	const sc::Ref<sc::GaussianBasisSet>& bs2,
 	const sc::Ref<sc::GaussianBasisSet>& bs3,
 	const sc::Ref<sc::GaussianBasisSet>& bs4,
-	const binfile_type ty
+	const sparse_ints::binfile_type ty
 );
 
 

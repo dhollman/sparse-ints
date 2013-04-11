@@ -28,8 +28,11 @@
 
 #include "sparse_ints.h"
 #include "utils.h"
-#include "compute_ints.h"
+#include "compute_full.h"
+#include "compute_hti.h"
+#include "binfiles.h"
 
+#define fold_begin 1
 
 using namespace sparse_ints;
 using namespace sc;
@@ -46,29 +49,27 @@ Ref<ThreadLock> sparse_ints::print_lock;
 int
 main(int argc, char** argv) {
 
-    //#############################################################################//
-    // Setup
-    //=========================================================//
-    // Read the input file
+    /*=========================================================*/
+    /* Create msg, thr, and timer                              */ #if fold_begin
 
-    
-    char *infile = new char[256];
-    if (argc == 2) {
-        infile = argv[1];
-    } else {
-        sprintf(infile, "input.dat");
+    //---------------------------------------------------------//
+    // Create the thread group object
+
+    sparse_ints::thr = ThreadGrp::initial_threadgrp(argc, argv);
+    if (thr.null()) {
+    	thr = ThreadGrp::get_default_threadgrp();
     }
+    ThreadGrp::set_default_threadgrp(thr);
+    int nthr = thr->nthread();
+    print_lock = thr->new_lock();
 
-    Ref<KeyVal> pkv(new ParsedKeyVal(infile));
-    Ref<KeyVal> keyval(new PrefixKeyVal(pkv, ":all"));
-
-    //=========================================================//
+    //---------------------------------------------------------//
     // Create the message group
 
     Ref<MessageGrp> msg = MessageGrp::initial_messagegrp(argc,argv);
     if (msg.null()) {
 		#if HAVE_MPI_H
-        msg = new MTMPIMessageGrp();
+        msg = new MPIMessageGrp();
 		#else
         msg = new ProcMessageGrp();
 		#endif
@@ -78,58 +79,107 @@ main(int argc, char** argv) {
     int n = msg->n();
     int me = msg->me();
 
-    //=========================================================//
-    // Create the thread group object
-
-    sparse_ints::thr = ThreadGrp::initial_threadgrp(argc, argv);
-    if (thr.null()) {
-    	thr = ThreadGrp::get_default_threadgrp();
-    }
-    ThreadGrp::set_default_threadgrp(thr);
-    int nthr = thr->nthread();
     if (!opts.quiet && me == MASTER) {
         cout << "Running on " << n << " node"
              << (n == 1 ? "" : "s") << " with " << nthr << " thread"
              << (nthr == 1 ? "" : "s") << " per node." << endl;
     }
-    print_lock = thr->new_lock();
 
-    //=========================================================//
+    //---------------------------------------------------------//
     // Create the timer
     
     MultiTimer timer("Sparse Ints", msg, thr);
     sparse_ints::timer = timer;
 
-    //=========================================================//
-    // Get the basis and the molecule from the input
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Get the stuff from the input                            */ #if fold_begin
 
     timer.enter("setup");
     timer.enter("input");
+    // Read the input file
+    char *infile = new char[256];
+    if (argc == 2) {
+        infile = argv[1];
+    } else {
+        sprintf(infile, "input.dat");
+    }
+    Ref<KeyVal> pkv(new ParsedKeyVal(infile));
+
+    // Create keyvalue objects for each of the sections
+    bool do_untrans, do_halftrans, do_fulltrans;
+    Ref<KeyVal> keyval(new PrefixKeyVal(pkv, ":all"));
+    Ref<KeyVal> untranskv(new PrefixKeyVal(pkv, ":untrans"));
+    do_untrans = pkv->exists(":untrans");
+    Ref<KeyVal> halftranskv(new PrefixKeyVal(pkv, ":halftrans"));
+    do_halftrans = pkv->exists(":halftrans");
+    Ref<KeyVal> fulltranskv(new PrefixKeyVal(pkv, ":fulltrans"));
+    do_fulltrans = pkv->exists(":fulltrans");
+
+    // Get the basis set
     Ref<GaussianBasisSet> obs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("basis").pointer(), "main\n");
+    // Get the auxiliary basis set
     Ref<GaussianBasisSet> auxbs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("aux_basis").pointer(), "main\n");
+    // Get the molecule object
     Ref<Molecule> mol = obs->molecule();
+    // Get some boolean options
     SparseIntOptions opts;
     opts.debug = keyval->booleanvalue("debug", KeyValValueboolean(false));
     opts.verbose = keyval->booleanvalue("verbose", KeyValValueboolean(false));
     opts.quiet = keyval->booleanvalue("quiet", KeyValValueboolean(false));
     opts.dynamic = keyval->booleanvalue("dynamic", KeyValValueboolean(true));
     opts.max_only = keyval->booleanvalue("max_only", KeyValValueboolean(true));
+    if(opts.max_only){
+    	opts.out_type = MaxAbs;
+    }
+    else{
+    	opts.out_type = AllInts;
+    	assert(not_implemented);
+    }
     sparse_ints::opts = opts;
 
+    // Get which integrals to do
     bool do_eri = keyval->booleanvalue("do_eri", KeyValValueboolean(true));
     bool do_f12 = keyval->booleanvalue("do_f12", KeyValValueboolean(true));
     bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(false));
     bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
-    int num_densmats = keyval->count("densmats");
-    vector<string> densmats(num_densmats);
-    for_each(imat, num_densmats){
-    	densmats[imat] = keyval->stringvalue("densmats", imat, KeyValValuestring("PQPQ"));
+
+    //---------------------------------------------------------//
+    // Options specific to Half Transformation code:
+
+    // Get the list of density matrix transformations to do.
+    int num_densmats_half = 0;
+    vector<string> densmats_half;
+    if(do_halftrans){
+		num_densmats_half = halftranskv->count("densmats");
+		densmats_half.resize(num_densmats_half);
+		for_each(imat, num_densmats_half){
+			densmats_half[imat] = halftranskv->stringvalue("densmats", imat, KeyValValuestring("PQ"));
+		}
     }
 
-    // Figure out where to put scratch files
+    //---------------------------------------------------------//
+    // Options specific to Full Transformation code:
+
+    // Get the list of density matrix transformations to do.
+    int num_densmats_full = 0;
+    vector<string> densmats_full;
+    if(do_fulltrans){
+		num_densmats_full = fulltranskv->count("densmats");
+		densmats_full.resize(num_densmats_full);
+		for_each(imat, num_densmats_full){
+			densmats_full[imat] = fulltranskv->stringvalue("densmats", imat, KeyValValuestring("PQPQ"));
+		}
+    }
+
+
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Make the scratch directory							   */ #if fold_begin
+
     char* scratch_dir = getenv("SCRATCH");
     if(scratch_dir == 0){
     	scratch_dir = new char[32];
@@ -172,12 +222,11 @@ main(int argc, char** argv) {
     	assert(result==0);
     }
 
-
     timer.exit("input");
-    
 
-    //=========================================================//
-    // Come up with a name for the files
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Come up with an name for the output files			   */ #if fold_begin
 
     string basname = obs->name();
     string abasname = auxbs->name();
@@ -188,8 +237,10 @@ main(int argc, char** argv) {
 
     timer.exit("setup");
 
-    //=========================================================//
-    // Construct the CLHF object
+
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Construct the CLHF object 							   */ #if fold_begin
 
     Ref<CLHF> hf = require_dynamic_cast<CLHF*>(
             keyval->describedclassvalue("hf").pointer(), "main\n");
@@ -198,25 +249,82 @@ main(int argc, char** argv) {
     assert(integral.nonnull());
     Ref<PetiteList> pl = integral->petite_list();
 
-    RefSymmSCMatrix P, Q, O;
-    RefSymmSCMatrix I, R;
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Make R12WavefunctionWorld                               */ #if fold_begin
+
+    timer.enter("build cf");
+	Ref<WavefunctionWorld> world = require_dynamic_cast<WavefunctionWorld*>(
+			keyval->describedclassvalue("world").pointer(), "main\n");
+	Ref<RefWavefunction> refwfn = new SD_RefWavefunction(world, hf);
+	Ref<R12WavefunctionWorld> r12world = new R12WavefunctionWorld(keyval, refwfn);
+	Ref<R12Technology> r12tech = r12world->r12tech();
+	Ref<OrbitalSpace> ribs_space = r12world->ribs_space();
+	Ref<GaussianBasisSet> ribs = ribs_space->basis();
+	Ref<R12Technology::CorrelationFactor> cf = r12tech->corrfactor();
+	Ref<Integral> ri_integral = ribs_space->integral();
+	Ref<OrbitalSpace> cabs_space = r12world->cabs_space(Alpha);
+    timer.exit("build cf");
+
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Determine which density matrices we need and get them   */ #if fold_begin
+
+    // Determine which density matrices we need
+    RefSymmSCMatrix P, Q, O, I, R, zero;
     Ref<LocalSCMatrixKit> kit = new LocalSCMatrixKit();
     RefSCMatrix Ccabs;
-    bool need_P = false;
-    bool need_Q = false;
-    bool need_O = false;
-    for_each(iset, num_densmats){
-		for_each(imat, 4){
-			switch(densmats[iset][imat]) {
-			case 'P':
-				need_P = true;
-				break;
-			case 'Q':
-				need_Q = true;
-				break;
-			case 'O':
-				need_O = true;
-				break;
+    bool need_P, need_Q, need_O, need_I, need_R, need_0;
+    need_P = need_Q = need_O = need_I = need_R = need_0 = false;
+    if(do_halftrans){
+		for_each(iset, num_densmats_half){
+			for_each(imat, 2){
+				switch(densmats_half[iset][imat]) {
+				case 'P':
+					need_P = true;
+					break;
+				case 'Q':
+					need_Q = true;
+					break;
+				case 'O':
+					need_O = true;
+					break;
+				case 'I':
+					need_I = true;
+					break;
+				case 'R':
+					need_R = true;
+					break;
+				case '0':
+					need_0 = true;
+					break;
+				}
+			}
+		}
+    } // end if do_halftrans
+    if(do_fulltrans){
+		for_each(iset, num_densmats_full){
+			for_each(imat, 4){
+				switch(densmats_full[iset][imat]) {
+				case 'P':
+					need_P = true;
+					break;
+				case 'Q':
+					need_Q = true;
+					break;
+				case 'O':
+					need_O = true;
+					break;
+				case 'I':
+					need_I = true;
+					break;
+				case 'R':
+					need_R = true;
+					break;
+				case '0':
+					need_0 = true;
+					break;
+				}
 			}
 		}
     }
@@ -246,22 +354,10 @@ main(int argc, char** argv) {
 			Q.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Qtmp.block(0), "main\n")->get_data());
 			timer.exit("Q");
 		}
-
     }
-    //=========================================================//
-    // make R12WavefunctionWorld
-    timer.enter("build cf");
-	Ref<WavefunctionWorld> world = require_dynamic_cast<WavefunctionWorld*>(
-			keyval->describedclassvalue("world").pointer(), "main\n");
-	Ref<RefWavefunction> refwfn = new SD_RefWavefunction(world, hf);
-	Ref<R12WavefunctionWorld> r12world = new R12WavefunctionWorld(keyval, refwfn);
-	Ref<R12Technology> r12tech = r12world->r12tech();
-	Ref<OrbitalSpace> ribs_space = r12world->ribs_space();
-	Ref<GaussianBasisSet> ribs = ribs_space->basis();
-	Ref<R12Technology::CorrelationFactor> cf = r12tech->corrfactor();
-	Ref<Integral> ri_integral = ribs_space->integral();
-	Ref<OrbitalSpace> cabs_space = r12world->cabs_space(Alpha);
-    timer.exit("build cf");
+    else {
+		SCMatrixKit::set_default_matrixkit(kit);
+    }
 
     // Get O if needed
     if(need_O){
@@ -274,110 +370,245 @@ main(int argc, char** argv) {
     	O.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Otmp.block(0), "main\n")->get_data());
     }
 
-    // Mostly for testing, but can be used as a cheesy way to do half-transforms
-    I = kit->symmmatrix(obs->basisdim());
-    I.assign(0.0);
-    I->shift_diagonal(1.0);
-    R = kit->symmmatrix(ribs->basisdim());
-    R.assign(0.0);
-    R->shift_diagonal(1.0);
-    RefSymmSCMatrix zero = kit->symmmatrix(obs->basisdim());
-    zero.assign(0.0);
-    //P->print("P");
+    // Make an identity transformation matrices and the zero transformation matrix.  Mostly for testing...
+    if(need_I){
+		I = kit->symmmatrix(obs->basisdim());
+		I.assign(0.0);
+		I->shift_diagonal(1.0);
+    }
+    if(need_R){
+		R = kit->symmmatrix(ribs->basisdim());
+		R.assign(0.0);
+		R->shift_diagonal(1.0);
+    }
+    if(need_0){
+    	zero = kit->symmmatrix(obs->basisdim());
+    	zero.assign(0.0);
+    }
+
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /*#########################################################*/
+    /* Do the half transformed integrals if we need to         */ #if fold_begin
+    if(do_halftrans){
+		if(do_eri || do_f12){
+			timer.enter("ERI/F12/F12G12");
+			int num_types = do_eri + do_f12;
+			TwoBodyOper::type otypes[num_types];
+			string* descs = new string[num_types];
+			int ity = 0;
+			if(do_eri){
+				otypes[ity] = cf->tbint_type_eri();
+				descs[ity] = "g";
+				++ity;
+			}
+			if(do_f12){
+				otypes[ity] = cf->tbint_type_f12();
+				descs[ity] = "F";
+				++ity;
+			}
+
+			DensityMap dens_pairs_oo, dens_pairs_rr, dens_pairs_or;
+			bool do_oo, do_rr, do_or;
+			do_oo = do_rr = do_or = false;
+
+			// Break the computed pairs into sets: obs-obs, obs-ribs, ribs-ribs
+			for_each(iset, num_densmats_half){
+				Ref<GaussianBasisSet> basis_sets[2];
+				RefSymmSCMatrix dmats[2];
+				for_each(imat, 2){
+					switch(densmats_half[iset][imat]) {
+					case 'P':
+						dmats[imat] = P;
+						basis_sets[imat] = obs;
+						break;
+					case 'Q':
+						dmats[imat] = Q;
+						basis_sets[imat] = obs;
+						break;
+					case 'O':
+						dmats[imat] = O;
+						basis_sets[imat] = ribs;
+						break;
+					case 'I':
+						dmats[imat] = I;
+						basis_sets[imat] = obs;
+						break;
+					case 'R':
+						dmats[imat] = R;
+						basis_sets[imat] = ribs;
+						break;
+					case '0':
+						dmats[imat] = zero;
+						basis_sets[imat] = obs;
+						break;
+					default:
+						cout << "Invalid density matrices: " << densmats_half[iset] << endl;
+						sleep(1);
+						assert(false);
+						break;
+					}
+				}
+				if(basis_sets[0] == obs && basis_sets[1] == obs){
+					dens_pairs_oo[densmats_half[iset]] = SymmSCMatrixPair(dmats[0], dmats[1]);
+					do_oo = true;
+				}
+				else if(basis_sets[0] == ribs && basis_sets[1] == ribs){
+					dens_pairs_rr[densmats_half[iset]] = SymmSCMatrixPair(dmats[0], dmats[1]);
+					do_rr = true;
+				}
+				else if(basis_sets[0] == obs && basis_sets[1] == ribs){
+					dens_pairs_or[densmats_half[iset]] = SymmSCMatrixPair(dmats[0], dmats[1]);
+					do_or = true;
+					assert(not_implemented);
+				}
+				else{
+					assert(not_implemented);
+				}
+
+			}
+			if(do_oo){
+				integral->set_basis(obs, obs, obs, obs);
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_hti_threaded(
+						descr,
+						otypes, descs, num_types,
+						prefix, tmpdir,
+						obs, obs,
+						dens_pairs_oo,
+						kit
+				);
+			}
+			if(do_rr){
+				integral->set_basis(ribs, ribs, ribs, ribs);
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_hti_threaded(
+						descr,
+						otypes, descs, num_types,
+						prefix, tmpdir,
+						ribs, ribs,
+						dens_pairs_rr,
+						kit
+				);
+			}
+			if(do_or){
+				assert(not_implemented);
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_hti_threaded(
+						descr,
+						otypes, descs, num_types,
+						prefix, tmpdir,
+						obs, ribs,
+						dens_pairs_or,
+						kit
+				);
+			}
+			timer.exit("ERI/F12/F12G12");
+		}
+    }
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Do fully transformed integrals if we need to            */ #if fold_begin
+
+    // Note:  This doesn't reuse the half-transformed integrals,
+    //  so it's better to do this in a separate computation if
+    //  you need both
 
     RefSymmSCMatrix dmats[4];
     Ref<GaussianBasisSet> basis_sets[4];
-    for_each(iset, num_densmats){
-    	if(me == MASTER){
-    		cout << "========================================" << endl;
-    		cout << "  Working on transformation " << densmats[iset] << endl;
-    		cout << "========================================" << endl;
-    	}
-		for_each(imat, 4){
-			switch(densmats[iset][imat]) {
-			case 'P':
-				dmats[imat] = P;
-				basis_sets[imat] = obs;
-				break;
-			case 'Q':
-				dmats[imat] = Q;
-				basis_sets[imat] = obs;
-				break;
-			case 'O':
-				dmats[imat] = O;
-				basis_sets[imat] = ribs;
-				break;
-			case 'I':
-				dmats[imat] = I;
-				basis_sets[imat] = obs;
-				break;
-			case 'R':
-				dmats[imat] = R;
-				basis_sets[imat] = ribs;
-				break;
-			case '0':
-				dmats[imat] = zero;
-				basis_sets[imat] = obs;
-				break;
-			default:
-				cout << densmats[iset] << endl;
-				sleep(1);
-				assert(false);
-				break;
+    if(do_fulltrans){
+		for_each(iset, num_densmats_full){
+			if(me == MASTER){
+				cout << "========================================" << endl;
+				cout << "  Working on transformation " << densmats_full[iset] << endl;
+				cout << "========================================" << endl;
+			}
+			for_each(imat, 4){
+				switch(densmats_full[iset][imat]) {
+				case 'P':
+					dmats[imat] = P;
+					basis_sets[imat] = obs;
+					break;
+				case 'Q':
+					dmats[imat] = Q;
+					basis_sets[imat] = obs;
+					break;
+				case 'O':
+					dmats[imat] = O;
+					basis_sets[imat] = ribs;
+					break;
+				case 'I':
+					dmats[imat] = I;
+					basis_sets[imat] = obs;
+					break;
+				case 'R':
+					dmats[imat] = R;
+					basis_sets[imat] = ribs;
+					break;
+				case '0':
+					dmats[imat] = zero;
+					basis_sets[imat] = obs;
+					break;
+				default:
+					cout << densmats_full[iset] << endl;
+					sleep(1);
+					assert(false);
+					break;
+				}
+			}
+
+			integral->set_basis(basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3]);
+
+			if(do_eri){
+				timer.enter("ERI");
+				TwoBodyOper::type otype = cf->tbint_type_eri();
+				// Compute and tranform the integrals
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_full_trans_ints(
+						descr, otype,
+						prefix, densmats_full[iset] + "g", tmpdir,
+						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+						dmats[0], dmats[1], dmats[2], dmats[3],
+						kit
+				);
+				timer.exit("ERI");
+			}
+			if(do_f12){
+				timer.enter("F12");
+				TwoBodyOper::type otype = cf->tbint_type_f12();
+				// Compute and tranform the integrals
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_full_trans_ints(
+						descr, otype,
+						prefix, densmats_full[iset] + "F", tmpdir,
+						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+						dmats[0], dmats[1], dmats[2], dmats[3],
+						kit
+				);
+				timer.exit("F12");
+			}
+			if(do_f12g12){
+				timer.enter("F12G12");
+				TwoBodyOper::type otype = cf->tbint_type_f12eri();
+				// Compute and tranform the integrals
+				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+				compute_full_trans_ints(
+						descr, otype,
+						prefix, densmats_full[iset] + "Fg", tmpdir,
+						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+						dmats[0], dmats[1], dmats[2], dmats[3],
+						kit
+				);
+				timer.exit("F12G12");
 			}
 		}
+    } // end if do_fulltrans
 
-
-		integral->set_basis(basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3]);
-
-		//#############################################################################//
-
-		if(do_eri){
-			timer.enter("ERI");
-			TwoBodyOper::type otype = cf->tbint_type_eri();
-			// Compute and tranform the integrals
-			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-			compute_full_trans_ints(
-					descr, otype,
-					prefix, densmats[iset] + "g", tmpdir,
-					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-					dmats[0], dmats[1], dmats[2], dmats[3],
-					kit
-			);
-			timer.exit("ERI");
-		}
-		if(do_f12){
-			timer.enter("F12");
-			TwoBodyOper::type otype = cf->tbint_type_f12();
-			// Compute and tranform the integrals
-			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-			compute_full_trans_ints(
-					descr, otype,
-					prefix, densmats[iset] + "F", tmpdir,
-					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-					dmats[0], dmats[1], dmats[2], dmats[3],
-					kit
-			);
-			timer.exit("F12");
-		}
-		if(do_f12g12){
-			timer.enter("F12G12");
-			TwoBodyOper::type otype = cf->tbint_type_f12eri();
-			// Compute and tranform the integrals
-			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-			compute_full_trans_ints(
-					descr, otype,
-					prefix, densmats[iset] + "Fg", tmpdir,
-					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
-					dmats[0], dmats[1], dmats[2], dmats[3],
-					kit
-			);
-			timer.exit("F12G12");
-		}
-    }
-
-    //=========================================================//
-    // Clean up
+    /***********************************************************/ #endif // end fulltrans fold
+    /*=========================================================*/
+    /*#########################################################*/
+    /*=========================================================*/
+    /* Clean up                                                */ #if fold_begin
 
     timer.print();
 
@@ -389,6 +620,11 @@ main(int argc, char** argv) {
     	}
     }
 
+    //delete msg;
+    //delete thr;
+
     return 0;
+    /***********************************************************/ #endif
+    /*=========================================================*/
 
 }

@@ -43,7 +43,7 @@ HalfTransComputeThread::HalfTransComputeThread(
 ) : ComputeThread(num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
 {
 	quartets_processed_ = quartets_processed;
-	(*quartets_processed) = 0;
+	(*quartets_processed_) = 0;
 
 	otypes_ = otypes;
 	prefixes_ = prefixes;
@@ -56,22 +56,6 @@ HalfTransComputeThread::HalfTransComputeThread(
 	dim1_ = first_pair.first.dim();
 	dim2_ = first_pair.second.dim();
 
-	/*
-        for(; mapit_ != dens_pairs_.end(); mapit_++){
-        	RefSCDimension dim = (*mapit_).second.first->dim();
-        	assert(dim.nonnull());
-        	int n1 = (*mapit_).second.first.dim().n();
-        	if(n1 > maxn1){
-        		maxn1 = n1;
-        		dim1_ = (*mapit_).second.first.dim();
-        	}
-        	int n2 = (*mapit_).second.second.dim().n();
-        	if(n2 > maxn2){
-        		maxn2 = n2;
-        		dim2_ = (*mapit_).second.second.dim();
-        	}
-        }
-	 */
 }
 
 void
@@ -179,8 +163,8 @@ HalfTransComputeThread::run()
 					DBG_MSG("Transforming ints for bf pair " << ipair
 							<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
 
-								// First quarter transform
-								RefSCMatrix transtmp = P1 * halft[ity][ipair];
+					// First quarter transform
+					RefSCMatrix transtmp = P1 * halft[ity][ipair];
 					DBG_MSG(":: First quarter transform done for " << pairname)
 
 					// Second quarter transform
@@ -188,10 +172,8 @@ HalfTransComputeThread::run()
 					DBG_MSG(":: Second quarter transform done for " << pairname)
 
 					// get the maximum absolute value
-					// SCMatrix->maxabs doesn't work for some reason
-					tmpval[ipair] = max_abs<value_t>(myhalf);
-
-					DBG_MSG(":: Found maxabs for " << pairname)
+					//tmpval[ipair] = max_abs<value_t>(myhalf);
+					tmpval[ipair] = myhalf->maxabs();
 				}
 				if (opts.debug) {
 					lock_->lock();

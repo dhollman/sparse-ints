@@ -77,22 +77,37 @@ all: (
 	   wfn = $..:hf
    )
    aux_basis = $:auxbas
-   r12tech = $:r12tech
    corr_param = 1.0
    corr_type = "stg-6g"
    debug = no
-   max_of_all = yes
    do_eri = no
    do_f12 = yes
    do_f12g12 = no
    max_only = yes
-   {densmats} = { 
-       PIII
-       IPII
-       IIPI
-       IIIP
-       %IOIO
-   }
    molname = $:molname
  )
 
+untrans: (
+
+)
+
+halftrans: (
+  {densmats} = { 
+      II
+      PP
+      QQ
+      PQ
+      OO
+      RR
+  }
+)
+
+%fulltrans: (
+%   {densmats} = { 
+%       PIII
+%       IPII
+%       IIPI
+%       IIIP
+%       %IOIO
+%   }
+%)

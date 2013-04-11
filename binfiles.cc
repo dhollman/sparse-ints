@@ -30,6 +30,8 @@ write_header_common(
 	o.write((char*)&value_size, sizeof(int8_t));
 }
 
+// DEPRECATED
+/*
 void
 write_header(ofstream& o, const Ref<GaussianBasisSet>& basis, SparseIntOptions opts)
 {
@@ -61,6 +63,7 @@ write_header(ofstream& o, const Ref<GaussianBasisSet>& basis, SparseIntOptions o
     	// TODO Write some sort of "average contraction exponent" here...
     }
 }
+*/
 
 
 void
@@ -91,20 +94,36 @@ write_header(
 
 		// Write the info about each shell
 		for_each(ish, nshell){
-			GaussianShell sh = bs1->shell(ish);
+			GaussianShell sh = basis->shell(ish);
+
 			// Write the center number
 			int tmp = basis->shell_to_center(ish);
 			o.write((char*)&tmp, sizeof(int));
+
 			// Write the number of functions
 			tmp = sh.nfunction();
 			o.write((char*)&tmp, sizeof(int));
+
 			// Write the maximum and minimum angular momentum
 			tmp = sh.max_am();
 			o.write((char*)&tmp, sizeof(int));
 			tmp = sh.min_am();
 			o.write((char*)&tmp, sizeof(int));
-			// TODO Write some sort of "average contraction exponent" here...
+
+			// Write the number of primitives
+			tmp = basis->shell(ish).nprimitive();
+			o.write((char*)&tmp, sizeof(int));
+
+			// Write the number of contractions in the shell
+			//   just a placeholder since generally contracted basis sets
+			//   are not supported yet
+			tmp = basis->shell(ish).ncontraction();
+			o.write((char*)&tmp, sizeof(int));
+
+			// TODO write coefficients and exponents
 		}
     }
+
+    // TODO write molecule information so that results can be duplicated in the future
 }
 
