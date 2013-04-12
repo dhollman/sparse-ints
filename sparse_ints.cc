@@ -136,7 +136,6 @@ main(int argc, char** argv) {
     }
     else{
     	opts.out_type = AllInts;
-    	assert(not_implemented);
     }
     sparse_ints::opts = opts;
 
@@ -233,7 +232,18 @@ main(int argc, char** argv) {
     string output_dir = keyval->stringvalue("output_dir");
     string molname = keyval->stringvalue("molname");
     string prefix = output_dir + "/" + molname + "_" + basname + "_" + abasname + "_";
-    prefix += "allmax_";
+    if(opts.out_type == MaxAbs)
+		prefix += "allmax_";
+    else if(opts.out_type == AllInts)
+    	prefix += "allints_";
+    else if(opts.out_type == Median)
+    	prefix += "median_";
+    else if(opts.out_type == Average)
+    	prefix += "average_";
+    else if(opts.out_type == StdDev)
+    	prefix += "stddev_";
+    else
+    	assert(not_implemented);
 
     timer.exit("setup");
 
@@ -389,6 +399,7 @@ main(int argc, char** argv) {
     /***********************************************************/ #endif
     /*=========================================================*/
     /*#########################################################*/
+    /*=========================================================*/
     /* Do the half transformed integrals if we need to         */ #if fold_begin
     if(do_halftrans){
 		if(do_eri || do_f12){

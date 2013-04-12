@@ -14,7 +14,7 @@ import sys
 from tempfile import mkdtemp
 from glob import glob
 import traceback
-from binfile_loader import LoadedIntFile
+from binfile_loader import LoadedIntFile, BasisFunctionMatrix
 import atexit
 
 convert="/usr/bin/convert"
@@ -35,8 +35,12 @@ else:
         parts = filen.split('_')
         if len(parts) >= 4:
             tmp = list(parts[:3])
-            if len(parts) >= 5 and "allmax" in parts[3:-1]:
-                tmp[2] += "_allmax"
+            qualifiers = ["allmax", "allints", "average", "median", "stddev"]
+            qual = [q for q in qualifiers if q in parts[3:-1]]
+            if len(qual) > 1:
+                raise ValueError("Huh?")
+            if len(parts) >= 5 and len(qual) == 1:
+                tmp[2] += "_" + qual[0]
             if len(parts) >= 5 and "ri" in parts[3:-1]:
                 tmp[2] += "_ri"
             tmp[0] = tmp[0].split('/')[1]
@@ -93,12 +97,13 @@ def load_binfile(mat):
     filename = bin_name(mat)
     print "  Loading matrix {} from {}".format(mat, filename)
     ints = LoadedIntFile(filename)
-    if ints.ints_type == 0:
-        raise NotImplementedError()
     ints.load_mags(min_val, max_val)
     print "\n    Loading complete!  Memmap file size is {}".format(
         data_size_str(os.path.getsize(mem_map_name(mat)))
     )
+    if ints.ints_type == 0:
+        shp = ints.loaded_array.mag_array.shape
+        ints.loaded_array.mag_array = ints.loaded_array.mag_array.reshape((shp[0]*shp[1], shp[2]*shp[3]))
     return ints.loaded_array
 
 
@@ -127,27 +132,36 @@ def png_dir(mat, stuff):
     extra_stuff = stuff[2].split('_')
     ribas = extra_stuff[0]
     basis = stuff[1]
+    qualifiers = ["allmax", "allints", "average", "median", "stddev"]
     rimats = ["R", "O"]
     if "ri" in extra_stuff or any(m in mat[:-1] for m in rimats) or mat in rimats:
         second_dir = basis + "+" + ribas
     else:
         second_dir = basis
     if mat in int_mats:
-        if "allmax" in extra_stuff:
-            rv = join_path(rv, second_dir, "allmax")
+        if any(q in extra_stuff for q in qualifiers):
+            rv = join_path(rv, second_dir, "untrans")
         else:
             rv = join_path(rv, second_dir, "pair_ints")
+            raise NotImplementedError("Parsing of pair_ints is not longer supported (encountered in {})".format((stuff,mat)))
     elif mat in ['P', 'Q']:
         rv = join_path(rv, second_dir, "density_mats")
     elif mat == 'O':
         second_dir = basis + "+" + ribas
         rv = join_path(rv, second_dir, "density_mats")
-    elif any(mat == a+b+c for a,b,c in product(dens_mats, dens_mats, int_mats)):
+    #elif any(mat == a+b+c for a,b,c in product(dens_mats, dens_mats, int_mats)):
+    elif all(a in dens_mats for a in mat[:2]) and mat[2:] in int_mats:
         rv = join_path(rv, second_dir, "half_trans")
-    elif any(mat == a+b+c+d+e for a,b,c,d,e in product(dens_mats, dens_mats, dens_mats, dens_mats, int_mats)):
+    #elif any(mat == a+b+c+d+e for a,b,c,d,e in product(dens_mats, dens_mats, dens_mats, dens_mats, int_mats)):
+    elif all(a in dens_mats for a in mat[:4]) and mat[4:] in int_mats:
         rv = join_path(rv, second_dir, "full_trans")
     else:
         raise NotImplementedError
+    qual = [q for q in qualifiers[1:] if q in extra_stuff]
+    if len(qual) > 1:
+        raise ValueError("Huh?")
+    elif len(qual) == 1:
+        rv = join_path(rv, qual[0])
     return rv
 
 def png_name(mat, stuff, grid=False, resized=False):
@@ -170,10 +184,12 @@ def bin_name(mat):
     return matrix_folder + prefix + mat + ".bin"
 
 def mem_map_name(mat, mags=False):
+    parts = prefix.split("/")
+    dot_prefix = "/".join(parts[:-1]) + "/." + parts[-1]
     if mags:
-        return matrix_folder + prefix + "_" + str(min_val) + "_" + str(max_val) + "_" + mat + ".npmm_mags"
+        return matrix_folder + dot_prefix + "_" + str(min_val) + "_" + str(max_val) + "_" + mat + ".npmm_mags"
     else:
-        return matrix_folder + prefix + mat + ".npmm"
+        return matrix_folder + dot_prefix + mat + ".npmm"
 
 def is_newer(filea, fileb):
     return getmtime(filea) - getmtime(fileb) > 0
@@ -215,12 +231,12 @@ for stuff in sets:
         elif not exists(rsz):
             print_doing_if_needed(stuff)
             print "  Doing {} because resized png {} does not exist".format(mat, rsz)
-        elif not exists(grd):
-            print_doing_if_needed(stuff)
-            print "  Doing {} because gridded png {} does not exist".format(mat, grd)
-        elif is_newer(rsz, grd):
-            print_doing_if_needed(stuff)
-            print "  Doing {} because resized png {} is newer than gridded png {}".format(mat, rsz, grd)
+        #elif not exists(grd) and isinstance(m, BasisFunctionMatrix):
+        #    print_doing_if_needed(stuff)
+        #    print "  Doing {} because gridded png {} does not exist".format(mat, grd)
+        #elif is_newer(rsz, grd) and isinstance(m, BasisFunctionMatrix):
+        #    print_doing_if_needed(stuff)
+        #    print "  Doing {} because resized png {} is newer than gridded png {}".format(mat, rsz, grd)
         elif is_newer(png, rsz):
             print_doing_if_needed(stuff)
             print "  Doing {} because full-res png {} is newer than resized png {}".format(mat, png, rsz)
@@ -317,12 +333,13 @@ for stuff in sets:
                 **globals()))
 
         if not exists(png_name(mat, stuff, grid=True)) or is_newer(png_name(mat, stuff, resized=True), png_name(mat, stuff, grid=True)):
-            print "  Drawing grid for {}...".format(mat)
-            os.system("{convert} {resized_name} -density 300 -fill none -stroke \"{grid_color}\" -strokewidth 1 -draw \"stroke-opacity 1 path '{drawstr}'\" {grid_version}".format(
-                resized_name=png_name(mat, stuff, resized=True),
-                grid_version=png_name(mat, stuff, grid=True),
-                drawstr=m.draw_lines_string(image_width), **globals()
-            ))
+            if isinstance(m, BasisFunctionMatrix):
+                print "  Drawing grid for {}...".format(mat)
+                os.system("{convert} {resized_name} -density 300 -fill none -stroke \"{grid_color}\" -strokewidth 1 -draw \"stroke-opacity 1 path '{drawstr}'\" {grid_version}".format(
+                    resized_name=png_name(mat, stuff, resized=True),
+                    grid_version=png_name(mat, stuff, grid=True),
+                    drawstr=m.draw_lines_string(image_width), **globals()
+                ))
 
         print "  Done with {}\n  {}".format(mat, '-'*50)
 

@@ -83,7 +83,7 @@ all: (
    do_eri = no
    do_f12 = yes
    do_f12g12 = no
-   max_only = yes
+   max_only = no
    molname = $:molname
    debug = yes
  )

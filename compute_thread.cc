@@ -302,6 +302,7 @@ FullTransComputeThread::run(){
 				//maxvals[ipair] = mean<value_t>(ints24[ipair]);
 			}
 			else{
+				// write all ints
 				identifier[0] = sh1;
 				identifier[2] = sh3;
 				o.write((char*)&identifier, 4*sizeof(idx_t));

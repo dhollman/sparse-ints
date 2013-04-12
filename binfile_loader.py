@@ -7,6 +7,18 @@ from os.path import exists, getmtime, getsize
 import numpy as np
 from math import log10
 
+
+def tensor_from_binfile(filename, force_reload=False):
+    int_file = LoadedIntFile(filename, force_reload=force_reload)
+    return int_file.loaded_array.array
+
+def tensor_and_mags_from_binfile(filename, min_value_or_mag_function, max_value=None, force_reload=False, force_reload_mags=False):
+    int_file = LoadedIntFile(filename, force_reload=force_reload)
+    int_file.load_mags(min_value_or_mag_function, max_value, force_reload=force_reload_mags)
+    return int_file.loaded_array.array, int_file.loaded_array.mag_array
+
+#--------------------------------------------------------------------------------#
+
 def is_newer(filea, fileb):
     return getmtime(filea) - getmtime(fileb) > 0
 
@@ -31,6 +43,7 @@ def make_mag_matrix(shape, mags_filename, mm_filename=None, force_new = False):
         rv = np.memmap(mags_filename, mode="w+", shape=shape, dtype='float32')
         return rv, False
 
+#--------------------------------------------------------------------------------#
 
 class ProgressBar(object):
     def __init__(self, max_val, width=80, out=sys.stdout, fill_char='=', indent='', arrow = True):
@@ -55,6 +68,8 @@ class ProgressBar(object):
         space = " " * (bar_width - filled)
         self.out.write("\r{3}[{0}{1}] {2:>3d}%".format(filler, space, self.current_percent, self.indent))
         self.out.flush()
+
+#--------------------------------------------------------------------------------#
 
 class BasisSet(object):
 
@@ -92,6 +107,8 @@ class BasisSet(object):
     def __eq__(self, other):
         return self.shells == other.shells
 
+#--------------------------------------------------------------------------------#
+
 class Shell(object):
 
     def __init__(self, idx, center, nbf, maxam, minam):
@@ -115,6 +132,7 @@ class Shell(object):
             return s.index, s.center, s.nfunction, s.min_am, s.max_am
         return signature(self) == signature(other)
 
+#--------------------------------------------------------------------------------#
 
 class BasisFunctionTensor(object):
 
@@ -122,6 +140,7 @@ class BasisFunctionTensor(object):
         self.basis_sets = basis_sets
         self.shape = tuple(b.nbf for b in self.basis_sets)
         self.int_file_obj = int_file_obj
+        self.mag_arrays = {}
         self.array, self.matrix_filled = make_matrix(
             self.shape,
             int_file_obj.memmap_filename,
@@ -129,10 +148,14 @@ class BasisFunctionTensor(object):
         )
         self.mag_matrix, self.mags_filled = None, False
 
-    def init_mag_matrix(self):
+    def init_mag_matrix(self, min_val_or_name, max_val=None):
+        if self.mags_filled:
+            self.mag_arrays[self.mag_filename] = self.mag_array
+            self.mags_filled = False
+        self.mag_filename = self.int_file_obj.mags_memmap_filename(min_val_or_name, max_val)
         self.mag_array, self.mags_filled = make_mag_matrix(
             self.shape,
-            self.int_file_obj.mags_memmap_filename,
+            self.mag_filename,
             self.int_file_obj.memmap_filename,
             force_new=not self.matrix_filled
         )
@@ -150,6 +173,8 @@ class BasisFunctionTensor(object):
     @mag_matrix.setter
     def mag_matrix(self,newval):
         self.mag_array = newval
+
+#--------------------------------------------------------------------------------#
 
 class BasisFunctionMatrix(BasisFunctionTensor):
 
@@ -181,23 +206,31 @@ class BasisFunctionMatrix(BasisFunctionTensor):
             ) for c,d in zip(cum_shell_rows[1:],cum_shell_cols[1:])
         )
 
+#--------------------------------------------------------------------------------#
+
 class LoadedIntFile(object):
 
     def __init__(self, filename, force_reload=False):
         self.filename = filename
         self.force_reload = force_reload
+        self.mag_filenames = []
         self._load()
 
     @property
     def memmap_filename(self):
-        if self.filename[-4:] == ".bin":
-            return self.filename[:-4] + ".npmm"
+        parts = self.filename.split('/')
+        dot_filename = "/".join(parts[:-1]) + "/." + parts[-1]
+        if dot_filename[-4:] == ".bin":
+            return dot_filename[:-4] + ".npmm"
         else:
-            return self.filename + ".npmm"
+            return dot_filename + ".npmm"
 
-    @property
-    def mags_memmap_filename(self):
-        return self.memmap_filename + "_mags"
+    def mags_memmap_filename(self, minval_or_name, max_val=None):
+        rv = self.memmap_filename + "_mags_" + str(minval_or_name)
+        if max_val is not None:
+            rv += "_" + str(max_val)
+        self.mag_filenames.append(rv)
+        return rv
 
     @property
     def loaded_array(self):
@@ -207,18 +240,33 @@ class LoadedIntFile(object):
         self.loaded_matrix = val
 
     def delete_mags(self):
+        """
+        Don't use this.  It's unsafe.  It would be better to
+        tell the memmap object to delete its associated file
+        when the object is deleted.
+        """
         del self.loaded_matrix.mag_array
-        self.loaded_matrix.mag_array = None
-        self.loaded_matrix.mags_filled = False
-        os.unlink(self.mags_memmap_filename)
+        for key in self.loaded_array.mag_arrays:
+            self.loaded_array.mag_arrays.pop(key)
+        self.loaded_array.mag_array = None
+        self.loaded_array.mags_filled = False
+        for mmfn in self.mag_filenames:
+            os.unlink(mmfn)
 
     def load_mags(self, mag_function_or_min_val, max_val=None, force_reload=False):
-        self.loaded_array.init_mag_matrix()
-        if self.loaded_array.mags_filled and not force_reload:
+        self.loaded_array.init_mag_matrix(mag_function_or_min_val, max_val)
+        if not force_reload and (self.loaded_array.mags_filled
+                or self.mags_memmap_filename(mag_function_or_min_val, max_val) in self.loaded_array.mag_arrays):
+            if self.mags_memmap_filename(mag_function_or_min_val, max_val) in self.loaded_array.mag_arrays:
+                # Swap the active mag_array
+                self.loaded_array.mag_arrays[self.loaded_array.mag_filename] = self.loaded_array.mag_array
+                self.loaded_array.mag_array = self.loaded_array.mag_arrays[self.mags_memmap_filename(mag_function_or_min_val, max_val)]
+                self.loaded_array.mag_filename = self.mags_memmap_filename(mag_function_or_min_val, max_val)
             return
         else:
             if callable(mag_function_or_min_val):
                 mag = mag_function_or_min_val
+                raise NotImplementedError("Naming scheme for mag function not yet implemented")
             else:
                 min_val = mag_function_or_min_val
                 def mag(val):
@@ -234,7 +282,6 @@ class LoadedIntFile(object):
 
 
     def _load(self):
-        print "  Loading matrix from {}".format(self.filename)
         with open(self.filename, 'rb') as f:
             #========================================#
             # first load all of the metadata
@@ -251,7 +298,8 @@ class LoadedIntFile(object):
                 return unpack(endian_char+str(n)+ch, val)
                 # byte and unsigned short functions
             self.byte_ = byte_ = lambda x: getter(x, 'b', 1)
-            self.short_ = short_ = lambda x: getter(x, 'H', 2)
+            self.short_ = short_ = lambda x: getter(x, 'h', 2)
+            self.ushort_ = ushort_ = lambda x: getter(x, 'H', 2)
             # Read the int_size, float_size, and the type of data file this is
             int_size, float_size, ints_type = byte_(3)
             self.ints_type = ints_type
@@ -262,6 +310,16 @@ class LoadedIntFile(object):
             if float_size not in (4, 8): raise ValueError("float size of {} not acceptable".format(float_size))
             float_char = "f" if float_size == 4 else "d"
             self.float_ = float_ = lambda x: getter(x, float_char, float_size)
+            #========================================#
+            # Check to see if this is a "versioned" file
+            #   or from a time before I used the version
+            #   metadata entry
+            chkval, self.version = short_(2)
+            if chkval != -1:
+                # seek backwards 4 bytes from the current
+                #   position (which is what the 1 means)
+                f.seek(-4, 1)
+                self.version = 0
             #========================================#
             if ints_type == 0:
                 # File contains all integrals
@@ -318,6 +376,7 @@ class LoadedIntFile(object):
         pbar = ProgressBar(data_size, indent='    ')
         self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[2], self)
         if not self.loaded_matrix.matrix_filled and not self.force_reload:
+            print "  Loading matrix from {}".format(self.filename)
             while True:
                 try:
                     if not self.loaded_matrix.matrix_filled:
@@ -346,17 +405,16 @@ class LoadedIntFile(object):
         pbar = ProgressBar(data_size, indent='    ')
         self.loaded_matrix = BasisFunctionTensor(self.basis_sets, self)
         if not self.loaded_matrix.matrix_filled and not self.force_reload:
+            print "  Loading matrix from {}".format(self.filename)
             while True:
                 try:
-                    si1, si2, si3, si4 = short_(4)
+                    si1, _, si3, __ = short_(4)
                     s1 = self.basis_sets[0].shells[si1]
-                    s2 = self.basis_sets[1].shells[si2]
                     s3 = self.basis_sets[2].shells[si3]
-                    s4 = self.basis_sets[3].shells[si4]
-                    nfunc = s1.nfunction * s2.nfunction * s3.nfunction * s4.nfunction
+                    nfunc = s1.nfunction * s3.nfunction * self.basis_sets[1].nbf * self.basis_sets[3].nbf
                     buff = np.array(float_(nfunc))
-                    buff = buff.reshape((s1.nfunction, s2.nfunction, s3.nfunction, s4.nfunction))
-                    self.loaded_matrix.array[s1.slice, s2.slice, s3.slice, s4.slice] = buff
+                    buff = buff.reshape((s1.nfunction, s3.nfunction, self.basis_sets[1].nbf, self.basis_sets[3].nbf))
+                    self.loaded_matrix.array[s1.slice, :, s3.slice, :] = buff.transpose([0,2,1,3])
                     pbar.update(f.tell()-metadata_size)
                 except EOFError:
                     # We've reached the end of the file, so break

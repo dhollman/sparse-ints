@@ -11,6 +11,8 @@ using namespace std;
 using namespace sc;
 using namespace sparse_ints;
 
+#define BINFILE_VERSION 1
+
 void
 write_header_common(
 	ofstream& o
@@ -28,6 +30,52 @@ write_header_common(
     int8_t value_size;
     value_size = (int8_t)sizeof(value_t);
 	o.write((char*)&value_size, sizeof(int8_t));
+}
+
+void
+write_basis(
+		ofstream& o,
+		const Ref<GaussianBasisSet> basis
+)
+{
+		// Write a description of the basis
+		int natoms = basis->ncenter();
+		o.write((char*)&natoms, sizeof(int));
+		int nshell = basis->nshell();
+		o.write((char*)&nshell, sizeof(int));
+		// note that at this point, we are 64-bit aligned
+
+		// Write the info about each shell
+		for_each(ish, nshell){
+			GaussianShell sh = basis->shell(ish);
+
+			// Write the center number
+			int tmp = basis->shell_to_center(ish);
+			o.write((char*)&tmp, sizeof(int));
+
+			// Write the number of functions
+			tmp = sh.nfunction();
+			o.write((char*)&tmp, sizeof(int));
+
+			// Write the maximum and minimum angular momentum
+			tmp = sh.max_am();
+			o.write((char*)&tmp, sizeof(int));
+			tmp = sh.min_am();
+			o.write((char*)&tmp, sizeof(int));
+
+			// Write the number of primitives
+			tmp = basis->shell(ish).nprimitive();
+			o.write((char*)&tmp, sizeof(int));
+
+			// Write the number of contractions in the shell
+			//   just a placeholder since generally contracted basis sets
+			//   are not supported yet
+			tmp = basis->shell(ish).ncontraction();
+			o.write((char*)&tmp, sizeof(int));
+
+			// TODO write coefficients and exponents
+		}
+
 }
 
 // DEPRECATED
@@ -80,49 +128,20 @@ write_header(
     int8_t ty8 = (int8_t)ty;
     o.write((char*)&ty8, sizeof(int8_t));
 
-    vector<Ref<GaussianBasisSet> > sets;
-    sets.push_back(bs1); sets.push_back(bs2);
-    sets.push_back(bs3); sets.push_back(bs4);
-    for_each(ibas, 4){
-    	Ref<GaussianBasisSet> basis = sets[ibas];
-		// Write a description of the basis
-		int natoms = basis->ncenter();
-		o.write((char*)&natoms, sizeof(int));
-		int nshell = basis->nshell();
-		o.write((char*)&nshell, sizeof(int));
-		// note that at this point, we are 64-bit aligned
+    // write a version number
+    // First indicate that we're not writing the number of atoms
+    int16_t new_file_marker = -1;
+    o.write((char*)&new_file_marker, sizeof(int16_t));
+    // Now write the version number
+    int16_t version_number = BINFILE_VERSION;
+    o.write((char*)&version_number, sizeof(int16_t));
 
-		// Write the info about each shell
-		for_each(ish, nshell){
-			GaussianShell sh = basis->shell(ish);
+    // 64-bit aligned at this point
 
-			// Write the center number
-			int tmp = basis->shell_to_center(ish);
-			o.write((char*)&tmp, sizeof(int));
-
-			// Write the number of functions
-			tmp = sh.nfunction();
-			o.write((char*)&tmp, sizeof(int));
-
-			// Write the maximum and minimum angular momentum
-			tmp = sh.max_am();
-			o.write((char*)&tmp, sizeof(int));
-			tmp = sh.min_am();
-			o.write((char*)&tmp, sizeof(int));
-
-			// Write the number of primitives
-			tmp = basis->shell(ish).nprimitive();
-			o.write((char*)&tmp, sizeof(int));
-
-			// Write the number of contractions in the shell
-			//   just a placeholder since generally contracted basis sets
-			//   are not supported yet
-			tmp = basis->shell(ish).ncontraction();
-			o.write((char*)&tmp, sizeof(int));
-
-			// TODO write coefficients and exponents
-		}
-    }
+    write_basis(o, bs1);
+    write_basis(o, bs2);
+    write_basis(o, bs3);
+    write_basis(o, bs4);
 
     // TODO write molecule information so that results can be duplicated in the future
 }

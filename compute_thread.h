@@ -103,6 +103,37 @@ public:
 
 };
 
+class UntransComputeThread : public ComputeThread {
+
+    sc::TwoBodyOper::type* otypes_;
+    std::map<std::string, std::vector<std::string> > prefixes_;
+    int num_types_;
+    int* quartets_processed_;
+
+public:
+
+
+    UntransComputeThread(
+		int num,
+		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
+		const sc::Ref<sc::ThreadLock>& lock,
+		const sc::Ref<sc::GaussianBasisSet>& bs1,
+		const sc::Ref<sc::GaussianBasisSet>& bs2,
+		const sc::Ref<sc::GaussianBasisSet>& bs3,
+		const sc::Ref<sc::GaussianBasisSet>& bs4,
+		sc::TwoBodyOper::type* otypes,
+		std::map<std::string, std::vector<std::string> > prefixes,
+		int num_types,
+		sc::Ref<sc::LocalSCMatrixKit>& kit,
+		int* quartets_processed
+    );
+
+    ~UntransComputeThread() { inteval_ = 0; }
+
+    void run();
+
+};
+
 class HalfTransComputeThread : public ComputeThread {
 
     sc::TwoBodyOper::type* otypes_;

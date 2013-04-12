@@ -26,7 +26,7 @@ using namespace std;
 /////////////////////////////////////////////////////////////////////////////
 // HalfTransCommThread class
 
-HalfTransComputeThread::HalfTransComputeThread(
+UntransComputeThread::UntransComputeThread(
 		int num,
 		const Ref<TwoBodyIntDescr>& intdescr,
 		const Ref<ThreadLock>& lock,
@@ -37,7 +37,6 @@ HalfTransComputeThread::HalfTransComputeThread(
 		TwoBodyOper::type* otypes,
 		std::map<string, vector<string> > prefixes,
 		int num_types,
-		DensityMap& dens_pairs,
 		Ref<LocalSCMatrixKit>& kit,
 		int* quartets_processed
 ) : ComputeThread(num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
@@ -48,14 +47,8 @@ HalfTransComputeThread::HalfTransComputeThread(
 	otypes_ = otypes;
 	prefixes_ = prefixes;
 	num_types_ = num_types;
-	dens_pairs_ = dens_pairs;
 	kit_ = kit;
-	mapit_ = dens_pairs.begin();
 	int maxn1 = 0, maxn2 = 0;
-	SymmSCMatrixPair first_pair = (*mapit_).second;
-	dim1_ = first_pair.first.dim();
-	dim2_ = first_pair.second.dim();
-
 }
 
 void
@@ -109,115 +102,96 @@ HalfTransComputeThread::run()
 			identifier[2] = (idx_t)sh3;
 			const int nbf1 = basis1_->shell(sh1).nfunction();
 			const int nbf3 = basis3_->shell(sh3).nfunction();
-
-			// Set up some stuff for each pair
-			idx_t max_idents[4*num_types_];
 			int nbfpairs = nbf1*nbf3;
-			vector<vector<RefSCMatrix> > halft(num_types_);
-			for_each(ity, num_types_){
-				vector<RefSCMatrix> tmpv(nbfpairs);
-				halft[ity] = tmpv;
-				for_each(ipair, nbfpairs){
-					halft[ity][ipair] = kit_->matrix(dim1_, dim2_);
-					halft[ity][ipair].assign(0.0);
-				}
+
+			int nbf2tot = basis2_->nbasis();
+			int nbf4tot = basis4_->nbasis();
+
+			value_t* ints24[nbf1*nbf3];
+			for_each(bf1,nbf1, bf3,nbf3){
+				ints24[bf1*nbf3 + bf3] = new value_t[nbf2tot*nbf4tot];
 			}
 			for(sh2 = 0; sh2 < nsh2; ++sh2){
 				for(sh4 = 0; sh4 < nsh4; ++sh4){
+					// These identifiers are not used anymore
 					identifier[1] = (idx_t)sh2;
 					identifier[3] = (idx_t)sh4;
+
 					const int nbf2 = basis2_->shell(sh2).nfunction();
-					const int bfoff2 = basis2_->shell_to_function(sh2);
 					const int nbf4 = basis4_->shell(sh4).nfunction();
-					const int bfoff4 = basis4_->shell_to_function(sh4);
 
 					// Compute the shell
-					if (opts.debug) {
-						lock_->lock();
-						cout << "        Computing shell quartet (" << sh1
-								<< "," << sh2 << "|" << sh3 << "," << sh4
-								<< ") on node "  << msg->me() << ", thread "
-								<< threadnum_ << "." << endl;
-						lock_->unlock();
-					}
 					inteval_->compute_shell(sh1, sh2, sh3, sh4);
-
 
 					// Loop over basis functions and store
 					int nfunc = nbf1*nbf2*nbf3*nbf4;
 					for_each(ity, num_types_){
 						const double* buff = buffers[ity];
 						int bf1234 = 0;
-						DBG_MSG("::nbf1="<<nbf1<<", nbf3="<<nbf3)
 						for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
-							int bfpair = bf1*nbf3 + bf3;
-							DBG_MSG("::  sh1="<<sh1<<", sh3="<<sh3<<", bfpair=" << bfpair << ", bf2="<<bf2<<", bf4="<<bf4<<", value="<<buff[bf1234]);
-							halft[ity][bfpair].set_element(bfoff2+bf2, bfoff4+bf4, buff[bf1234]);
+							ints24[bf1*nbf3+bf3]
 							bf1234++;
 						}
 					} // end loop over types
+					delete[] ints24;
 
 				} // end loop over index 4
 			} // end loop over index 2
 			// Now transform and find maxima
-			int nbf2tot = basis2_->nbasis();
-			int nbf4tot = basis4_->nbasis();
-			iterate(mapit_, dens_pairs_){
-				string pairname = (*mapit_).first;
-				RefSymmSCMatrix P1 = (*mapit_).second.first;
-				RefSymmSCMatrix P2 = (*mapit_).second.second;
-				for_each(ity, num_types_){
-					value_t maxvals[nbfpairs];
-					// Write the identifier for this type/density pairname/shell pair
-					o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
-					for_each(ibf1,nbf1, ibf3,nbf3){
-						int ipair = ibf1*nbf3 + ibf3;
-						DBG_MSG("Transforming ints for bf pair " << ipair
-								<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
-
-						// First quarter transform
-						RefSCMatrix transtmp = P1 * halft[ity][ipair];
-						DBG_MSG(":: First quarter transform done for " << pairname)
-
-						// Second quarter transform
-						RefSCMatrix myhalf = transtmp * P2;
-						DBG_MSG(":: Second quarter transform done for " << pairname)
-
-						if(opts.out_type == MaxAbs){
-							// get the maximum absolute value
-							maxvals[ipair] = myhalf->maxabs();
-						}
-						else if(opts.out_type == AllInts){
-							value_t allvals[nbf2tot*nbf4tot];
-							int nrow = myhalf->nrow();
-							int ncol = myhalf->ncol();
-							for_each(row,nrow, col,ncol){
-								allvals[row*ncol + col] = (value_t)myhalf.get_element(row, col);
-							}
-							// write all of the integrals for the current bf paicompute_hti.hr
-							o[pairname][ity].write((char*)&allvals, nbf2tot*nbf4tot*sizeof(value_t));
-						}
-						else {
-							assert(not_implemented);
-						}
-					}
-					if(opts.out_type == MaxAbs){
-						o[pairname][ity].write((char*)&maxvals, nbfpairs*sizeof(value_t));
-					}
-				} // end loop over types
-			} // End loop over density matrix pairs
+//			string pairname = (*mapit_).first;
+//			RefSymmSCMatrix P1 = (*mapit_).second.first;
+//			RefSymmSCMatrix P2 = (*mapit_).second.second;
+//			for_each(ity, num_types_){
+//				value_t maxvals[nbfpairs];
+//				// Write the identifier for this type/density pairname/shell pair
+//				o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
+//				for_each(ibf1,nbf1, ibf3,nbf3){
+//					int ipair = ibf1*nbf3 + ibf3;
+//					DBG_MSG("Transforming ints for bf pair " << ipair
+//							<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
+//
+//					// First quarter transform
+//					RefSCMatrix transtmp = P1 * halft[ity][ipair];
+//					DBG_MSG(":: First quarter transform done for " << pairname)
+//
+//					// Second quarter transform
+//					RefSCMatrix myhalf = transtmp * P2;
+//					DBG_MSG(":: Second quarter transform done for " << pairname)
+//
+//					if(opts.out_type == MaxAbs){
+//						// get the maximum absolute value
+//						maxvals[ipair] = myhalf->maxabs();
+//					}
+//					else if(opts.out_type == AllInts){
+//						value_t allvals[nbf2tot*nbf4tot];
+//						int nrow = myhalf->nrow();
+//						int ncol = myhalf->ncol();
+//						for_each(row,nrow, col,ncol){
+//							allvals[row*ncol + col] = (value_t)myhalf.get_element(row, col);
+//						}
+//						// write all of the integrals for the current bf pair
+//						o[pairname][ity].write((char*)&allvals, nbf2tot*nbf4tot*sizeof(value_t));
+//					}
+//					else {
+//						assert(not_implemented);
+//					}
+//				}
+//				if(opts.out_type == MaxAbs){
+//					o[pairname][ity].write((char*)&maxvals, nbfpairs*sizeof(value_t));
+//				}
+			} // end loop over types
 		} // End loop over permutations
 	} // End while get task
 
 	//=========================================================//
 	// close the output
-	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
-		string pair_name = (*mapit_).first;
-		for_each(ity, num_types_){
-			o[pair_name][ity].close();
-		}
-		delete[] o[pair_name];
-	}
+//	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
+//		string pair_name = (*mapit_).first;
+//		for_each(ity, num_types_){
+//			o[pair_name][ity].close();
+//		}
+//		delete[] o[pair_name];
+//	}
 
 }
 
