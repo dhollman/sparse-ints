@@ -91,4 +91,5 @@
 			} \
 		} \
 		if (length % nperline != 0) \
-			cout << endl;
+			cout << endl; \
+		cout << setw(0);

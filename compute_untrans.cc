@@ -5,7 +5,7 @@
  *      Author: dhollman
  */
 
-#include "compute_hti.h"
+#include "compute_untrans.h"
 #include "utils.h"
 #include "binfiles.h"
 #include "compute_thread.h"
@@ -15,13 +15,14 @@ using namespace sc;
 using namespace std;
 
 void
-sparse_ints::compute_hti_threaded(
+sparse_ints::compute_untrans_threaded(
         const Ref<TwoBodyIntDescr>& intdescr,
         TwoBodyOper::type* otypes, string* descs, int num_types,
         string prefix, string tmpdir,
-        const Ref<GaussianBasisSet>& bs13,
-        const Ref<GaussianBasisSet>& bs24,
-    	DensityMap dens_pairs,
+        const Ref<GaussianBasisSet>& bs1,
+        const Ref<GaussianBasisSet>& bs2,
+        const Ref<GaussianBasisSet>& bs3,
+        const Ref<GaussianBasisSet>& bs4,
     	Ref<LocalSCMatrixKit>& kit
 )
 {
@@ -47,21 +48,17 @@ sparse_ints::compute_hti_threaded(
 
     // Setup the worker threads
     Ref<ThreadLock> lock = thr->new_lock();
-    std::map<string, vector<string> > tmp_prefixes;
-    DensityMapIterator mapit = dens_pairs.begin();
-    for(; mapit != dens_pairs.end(); mapit++) {
-    	string pair_name = (*mapit).first;
-		for_each(ity, num_types) {
-			tmp_prefixes[pair_name].push_back(tmpdir + "/" + pair_name + descs[ity] + "_");
-		}
-    }
+    vector<string> tmp_prefixes;
+	for_each(ity, num_types) {
+		tmp_prefixes.push_back(tmpdir + "/" + descs[ity] + "_");
+	}
     for_each(ithr,nthr){
     	timer.enter("create compute threads");
-        HalfTransComputeThread* thread = new HalfTransComputeThread(
+        UntransComputeThread* thread = new UntransComputeThread(
         		ithr, intdescr, lock,
-        		bs13, bs24, bs13, bs24,
+        		bs1, bs2, bs3, bs4,
         		otypes, tmp_prefixes, num_types,
-        		dens_pairs, kit, &(quartets_processed[me*nthr + ithr])
+        		kit, &(quartets_processed[me*nthr + ithr])
 		);
     	timer.exit("create compute threads");
         thr->add_thread(ithr, thread);
@@ -82,11 +79,10 @@ sparse_ints::compute_hti_threaded(
     timer.enter("node gather");
 	if(!opts.quiet && me == MASTER)
 		cout << "  Gathering results on a per-node basis..." << endl;
-    for(mapit = dens_pairs.begin(); mapit != dens_pairs.end(); mapit++) {
-    	string pair_name = (*mapit).first;
+	if(me != MASTER){
 		for_each(ity, num_types){
 			stringstream sstr;
-			sstr << tmp_prefixes[pair_name][ity] << msg->me() << ".bin";
+			sstr << tmp_prefixes[ity] << msg->me() << ".bin";
 			string outfile = sstr.str();
 			//const char* filename = sstr.str().c_str();
 			ofstream o(outfile.c_str(), ios::out | ios::binary);
@@ -94,7 +90,7 @@ sparse_ints::compute_hti_threaded(
 			ifstream i;
 			for_each(ithr, nthr){
 				stringstream sstr;
-				sstr << tmp_prefixes[pair_name][ity] << msg->me() << "_" << ithr << ".bin";
+				sstr << tmp_prefixes[ity] << msg->me() << "_" << ithr << ".bin";
 				string infile = sstr.str();
 				if(opts.debug){
 					cout << "    Node " << me << " had file " << infile
@@ -108,12 +104,10 @@ sparse_ints::compute_hti_threaded(
 			}
 			o.close();
 		}
-    }
+	}
 	timer.exit("node gather");
     //============================================================
 	timer.enter("sync");
-	//if(!opts.quiet && me == MASTER)
-	//   cout << "  Waiting for all nodes to finish aggregation..." << endl;
 	msg->sync();
 	timer.exit("sync");
     //============================================================
@@ -124,45 +118,35 @@ sparse_ints::compute_hti_threaded(
 	if(me == MASTER) {
 		if(!opts.quiet) cout << "  Gathering results from all nodes..." << endl;
 		ifstream i;
-		for(mapit = dens_pairs.begin(); mapit != dens_pairs.end(); mapit++) {
-			string pair_name = (*mapit).first;
-			for_each(ity, num_types){
-				string fname = prefix + pair_name + descs[ity] + ".bin";
-				ofstream o(fname.c_str(), ios::out | ios::binary);
-				// TODO update this to modern write
-				write_header(o, bs13, bs24, bs13, bs24, opts.out_type);
-				for_each(inode, msg->n()){
-					stringstream sstr;
-					sstr << tmp_prefixes[pair_name][ity] << inode << ".bin";
-					string infile = sstr.str();
-					if(opts.debug){
-						cout << "    Node " << inode << " had file " << infile
-							 << " for " << descs[ity] << " of size "
-							 << file_size_string(infile) << endl;
-					}
-					i.open(infile.c_str(), ios::in | ios::binary);
-					copy_buffer(i, o);
-					i.close();
-					remove(sstr.str().c_str());
+		for_each(ity, num_types){
+			string fname = prefix + descs[ity] + ".bin";
+			ofstream o(fname.c_str(), ios::out | ios::binary);
+			if(opts.out_type == AllInts)
+				write_header(o, bs1, bs2, bs3, bs4, AllIntsUntransformed);
+			else
+				write_header(o, bs1, bs2, bs3, bs4, opts.out_type);
+			for_each(inode, msg->n()){
+				stringstream sstr;
+				sstr << tmp_prefixes[ity] << inode << ".bin";
+				string infile = sstr.str();
+				if(opts.debug){
+					cout << "    Node " << inode << " had file " << infile
+						 << " for " << descs[ity] << " of size "
+						 << file_size_string(infile) << endl;
 				}
-				o.close();
-				if(!opts.quiet) cout << "    Collected complete file for " << pair_name << descs[ity] << " of size " << file_size_string(fname.c_str()) << endl;
+				i.open(infile.c_str(), ios::in | ios::binary);
+				copy_buffer(i, o);
+				i.close();
+				remove(sstr.str().c_str());
 			}
+			o.close();
+			if(!opts.quiet) cout << "    Collected complete file for " << descs[ity] << " of size " << file_size_string(fname.c_str()) << endl;
 		}
-		// Print the shell pair distribution
+		// Print the number of shell quartets computed per node
 		if(!opts.quiet){
-			int n_on_line = 0;
-			const int n_per_line = 10;
 			cout << "Quartet distribution:" << setw(5) << endl;
-			for_each(iproc,msg->n(), ithr,nthr){
-				if(n_on_line == n_per_line){
-					cout << endl;
-					n_on_line = 0;
-				}
-				cout << setw(7) << quartets_processed[iproc*nthr + ithr] << " ";
-				n_on_line++;
-			}
-			cout << setw(0) << endl;
+			PRINT_LIST(quartets_processed, msg->n()*nthr, 7, 10);
+			cout << endl;
 		}
 	}
 	timer.exit("master gather");

@@ -106,7 +106,7 @@ public:
 class UntransComputeThread : public ComputeThread {
 
     sc::TwoBodyOper::type* otypes_;
-    std::map<std::string, std::vector<std::string> > prefixes_;
+    std::vector<std::string> prefixes_;
     int num_types_;
     int* quartets_processed_;
 
@@ -122,7 +122,7 @@ public:
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
 		sc::TwoBodyOper::type* otypes,
-		std::map<std::string, std::vector<std::string> > prefixes,
+		std::vector<std::string> prefixes,
 		int num_types,
 		sc::Ref<sc::LocalSCMatrixKit>& kit,
 		int* quartets_processed

@@ -35,7 +35,7 @@ UntransComputeThread::UntransComputeThread(
 		const Ref<GaussianBasisSet>& bs3,
 		const Ref<GaussianBasisSet>& bs4,
 		TwoBodyOper::type* otypes,
-		std::map<string, vector<string> > prefixes,
+		vector<string> prefixes,
 		int num_types,
 		Ref<LocalSCMatrixKit>& kit,
 		int* quartets_processed
@@ -52,19 +52,15 @@ UntransComputeThread::UntransComputeThread(
 }
 
 void
-HalfTransComputeThread::run()
+UntransComputeThread::run()
 {
 	//=========================================================//
 	// open the output file(s)
-	std::map<string, ofstream* > o;
-	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
-		string pair_name = (*mapit_).first;
-		o[pair_name] = new ofstream[num_types_];
-		for_each(ity, num_types_){
-			stringstream sstr;
-			sstr << prefixes_[pair_name][ity] << msg->me() << "_" << threadnum_ << ".bin";
-			o[pair_name][ity].open(sstr.str().c_str(), ios::binary | ios::out);
-		}
+	ofstream* o = new ofstream[num_types_];
+	for_each(ity, num_types_){
+		stringstream sstr;
+		sstr << prefixes_[ity] << msg->me() << "_" << threadnum_ << ".bin";
+		o[ity].open(sstr.str().c_str(), ios::binary | ios::out);
 	}
 
 	//=========================================================//
@@ -89,6 +85,9 @@ HalfTransComputeThread::run()
 	bool bs1eqbs3 = basis1_ == basis3_;
 	while(shellpairs.get_task(sh1, sh3)) {
 		// TODO utilize permutational symmetry when possible
+		// For now, just unroll the permutational symmetry (which
+		//   only needs to be done if the basis sets are equal; if
+		//   not, both permutations will be passed.)
 		for(int iperm = 0; iperm < ((sh1==sh3 || !bs1eqbs3) ? 1 : 2); ++iperm){
 			if(iperm == 1){
 				int tmp = sh3;
@@ -104,16 +103,17 @@ HalfTransComputeThread::run()
 			const int nbf3 = basis3_->shell(sh3).nfunction();
 			int nbfpairs = nbf1*nbf3;
 
-			int nbf2tot = basis2_->nbasis();
-			int nbf4tot = basis4_->nbasis();
-
-			value_t* ints24[nbf1*nbf3];
-			for_each(bf1,nbf1, bf3,nbf3){
-				ints24[bf1*nbf3 + bf3] = new value_t[nbf2tot*nbf4tot];
+			// Not used if we're writing all of the integrals,
+			//   but it doesn't take up a lot of memory anyway
+			value_t* max_vals[num_types_];
+			for_each(ity, num_types_){
+				max_vals[ity] = new value_t[nbfpairs];
+				for_each(ipair, nbfpairs)
+					max_vals[ity][nbfpairs] = -1.0;
 			}
+
 			for(sh2 = 0; sh2 < nsh2; ++sh2){
 				for(sh4 = 0; sh4 < nsh4; ++sh4){
-					// These identifiers are not used anymore
 					identifier[1] = (idx_t)sh2;
 					identifier[3] = (idx_t)sh4;
 
@@ -122,77 +122,63 @@ HalfTransComputeThread::run()
 
 					// Compute the shell
 					inteval_->compute_shell(sh1, sh2, sh3, sh4);
+					(*quartets_processed_)++;
 
 					// Loop over basis functions and store
 					int nfunc = nbf1*nbf2*nbf3*nbf4;
 					for_each(ity, num_types_){
 						const double* buff = buffers[ity];
-						int bf1234 = 0;
-						for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
-							ints24[bf1*nbf3+bf3]
-							bf1234++;
+						if(opts.out_type == AllInts){
+							// Cast to a value_t if value_t is not a double
+							#if WRITE_AS_FLOAT
+							value_t converted[nfunc];
+							int bf1234 = 0;
+							for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+								converted[bf1234] = (value_t)buff[bf1234++];
+							}
+							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
+							o[ity].write((char*)&converted, nfunc*sizeof(value_t));
+							#else
+							// Otherwise just write the buffer as is
+							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
+							o[ity].write((char*)&buff, nfunc*sizeof(value_t));
+							#endif
+						}
+						else if(opts.out_type == MaxAbs){
+							// Just keep track of the maximum value for the current
+							//   basis function pair in the given shell
+							int bf1234 = 0;
+							for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+								int pairnum = bf1*nbf3 + bf3;
+								value_t aval = fabs(buff[bf1234++]);
+								if(aval > max_vals[ity][pairnum])
+									max_vals[ity][pairnum] = aval;
+							}
 						}
 					} // end loop over types
-					delete[] ints24;
 
 				} // end loop over index 4
 			} // end loop over index 2
-			// Now transform and find maxima
-//			string pairname = (*mapit_).first;
-//			RefSymmSCMatrix P1 = (*mapit_).second.first;
-//			RefSymmSCMatrix P2 = (*mapit_).second.second;
-//			for_each(ity, num_types_){
-//				value_t maxvals[nbfpairs];
-//				// Write the identifier for this type/density pairname/shell pair
-//				o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
-//				for_each(ibf1,nbf1, ibf3,nbf3){
-//					int ipair = ibf1*nbf3 + ibf3;
-//					DBG_MSG("Transforming ints for bf pair " << ipair
-//							<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
-//
-//					// First quarter transform
-//					RefSCMatrix transtmp = P1 * halft[ity][ipair];
-//					DBG_MSG(":: First quarter transform done for " << pairname)
-//
-//					// Second quarter transform
-//					RefSCMatrix myhalf = transtmp * P2;
-//					DBG_MSG(":: Second quarter transform done for " << pairname)
-//
-//					if(opts.out_type == MaxAbs){
-//						// get the maximum absolute value
-//						maxvals[ipair] = myhalf->maxabs();
-//					}
-//					else if(opts.out_type == AllInts){
-//						value_t allvals[nbf2tot*nbf4tot];
-//						int nrow = myhalf->nrow();
-//						int ncol = myhalf->ncol();
-//						for_each(row,nrow, col,ncol){
-//							allvals[row*ncol + col] = (value_t)myhalf.get_element(row, col);
-//						}
-//						// write all of the integrals for the current bf pair
-//						o[pairname][ity].write((char*)&allvals, nbf2tot*nbf4tot*sizeof(value_t));
-//					}
-//					else {
-//						assert(not_implemented);
-//					}
-//				}
-//				if(opts.out_type == MaxAbs){
-//					o[pairname][ity].write((char*)&maxvals, nbfpairs*sizeof(value_t));
-//				}
-			} // end loop over types
+
+			if(opts.out_type == MaxAbs){
+				for_each(ity, num_types_){
+					o[ity].write((char*)&identifier, 4*sizeof(idx_t));
+					o[ity].write((char*)&max_vals, nbfpairs*sizeof(value_t));
+				}
+			}
+			for_each(ity, num_types_){
+				delete[] max_vals[ity];
+			}
+
 		} // End loop over permutations
 	} // End while get task
 
 	//=========================================================//
 	// close the output
-//	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
-//		string pair_name = (*mapit_).first;
-//		for_each(ity, num_types_){
-//			o[pair_name][ity].close();
-//		}
-//		delete[] o[pair_name];
-//	}
-
+	for_each(ity, num_types_){
+		o[ity].close();
+	}
+	delete[] o;
 }
 
 

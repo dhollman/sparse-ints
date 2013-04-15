@@ -30,6 +30,7 @@
 #include "utils.h"
 #include "compute_full.h"
 #include "compute_hti.h"
+#include "compute_untrans.h"
 #include "binfiles.h"
 
 #define fold_begin 1
@@ -147,6 +148,15 @@ main(int argc, char** argv) {
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
 
     //---------------------------------------------------------//
+    // Options specific to Untransformed integral code:
+    bool use_ribs[4];
+    if(do_untrans){
+    	for_each(nriq, 4){
+			use_ribs[nriq] = untranskv->booleanvalue("do_ri", nriq, KeyValValueboolean(false));
+    	}
+    }
+
+    //---------------------------------------------------------//
     // Options specific to Half Transformation code:
 
     // Get the list of density matrix transformations to do.
@@ -245,8 +255,26 @@ main(int argc, char** argv) {
     else
     	assert(not_implemented);
 
-    timer.exit("setup");
+    string untrans_prefix = prefix + "";
+    if(do_untrans){
+    	int bsval = 0;
+    	string bs_indicator = "bs";
+    	bool need_write = false;
+    	for_each(iri, 4){
+			if(use_ribs[iri]){
+				need_write = true;
+				bs_indicator += "r";
+			}
+			else{
+				bs_indicator += "o";
+			}
+    	}
+    	if(need_write){
+    		untrans_prefix += "_" + bs_indicator + "_";
+    	}
+    }
 
+    timer.exit("setup");
 
     /***********************************************************/ #endif
     /*=========================================================*/
@@ -400,11 +428,21 @@ main(int argc, char** argv) {
     /*=========================================================*/
     /*#########################################################*/
     /*=========================================================*/
-    /* Do the half transformed integrals if we need to         */ #if fold_begin
-    if(do_halftrans){
-		if(do_eri || do_f12){
-			timer.enter("ERI/F12/F12G12");
-			int num_types = do_eri + do_f12;
+    /* Do the untransformed integrals if we need to            */ #if fold_begin
+
+    if(do_untrans){
+		Ref<GaussianBasisSet> basis_sets[4];
+		for_each(iri, 4){
+			if(use_ribs[iri])
+				basis_sets[iri] = ribs;
+			else
+				basis_sets[iri] = obs;
+		}
+		integral->set_basis(basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3]);
+
+		if(do_eri || do_f12 || do_f12g12){
+			timer.enter("untrans ERI/F12/F12G12");
+			int num_types = do_eri + do_f12 + do_f12g12;
 			TwoBodyOper::type otypes[num_types];
 			string* descs = new string[num_types];
 			int ity = 0;
@@ -416,6 +454,77 @@ main(int argc, char** argv) {
 			if(do_f12){
 				otypes[ity] = cf->tbint_type_f12();
 				descs[ity] = "F";
+				++ity;
+			}
+			if(do_f12g12){
+				otypes[ity] = cf->tbint_type_f12eri();
+				descs[ity] = "Fg";
+				++ity;
+			}
+			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
+
+			compute_untrans_threaded(
+					descr,
+					otypes, descs, num_types,
+					untrans_prefix, tmpdir,
+					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+					kit
+			);
+			timer.exit("untrans ERI/F12/F12G12");
+		}
+
+		if(do_f12sq || do_dblcomm){
+			timer.enter("untrans F12sq/DC");
+			int num_types = do_f12sq + do_dblcomm;
+			TwoBodyOper::type otypes[num_types];
+			string* descs = new string[num_types];
+			int ity = 0;
+			if(do_f12sq){
+				otypes[ity] = cf->tbint_type_f12f12();
+				descs[ity] = "Fsq";
+				++ity;
+			}
+			if(do_dblcomm){
+				otypes[ity] = cf->tbint_type_f12t1f12();
+				descs[ity] = "DC";
+				++ity;
+			}
+			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0, 0);
+
+			compute_untrans_threaded(
+					descr,
+					otypes, descs, num_types,
+					untrans_prefix, tmpdir,
+					basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
+					kit
+			);
+			timer.exit("untrans F12sq/DC");
+		}
+    }
+
+    /***********************************************************/ #endif
+    /*=========================================================*/
+    /* Do the half transformed integrals if we need to         */ #if fold_begin
+    if(do_halftrans){
+		if(do_eri || do_f12 || do_f12g12){
+			timer.enter("half trans ERI/F12");
+			int num_types = do_eri + do_f12 + do_f12g12;
+			TwoBodyOper::type otypes[num_types];
+			string* descs = new string[num_types];
+			int ity = 0;
+			if(do_eri){
+				otypes[ity] = cf->tbint_type_eri();
+				descs[ity] = "g";
+				++ity;
+			}
+			if(do_f12){
+				otypes[ity] = cf->tbint_type_f12();
+				descs[ity] = "F";
+				++ity;
+			}
+			if(do_f12g12){
+				otypes[ity] = cf->tbint_type_f12eri();
+				descs[ity] = "Fg";
 				++ity;
 			}
 
@@ -514,7 +623,7 @@ main(int argc, char** argv) {
 						kit
 				);
 			}
-			timer.exit("ERI/F12/F12G12");
+			timer.exit("halftrans ERI/F12");
 		}
     }
     /***********************************************************/ #endif

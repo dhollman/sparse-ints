@@ -55,11 +55,16 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
+#define WRITE_AS_FLOAT 1
 
 // typedefs
+#if WRITE_AS_FLOAT
+typedef float value_t;
+#else
+typedef double value_t;
+#endif
 
 typedef int16_t idx_t;
-typedef float value_t;
 typedef std::pair<sc::RefSymmSCMatrix, sc::RefSymmSCMatrix> SymmSCMatrixPair;
 typedef std::map<std::string, SymmSCMatrixPair > DensityMap;
 typedef std::map<std::string, SymmSCMatrixPair >::iterator  DensityMapIterator;
@@ -152,6 +157,7 @@ typedef struct {
 	bool verbose;
 	bool max_only;
 	bool dynamic;
+	bool do_tar;  // Should we make tar files instead of making one, big, bin file?
 	binfile_type out_type;
 } SparseIntOptions;
 
