@@ -15,6 +15,15 @@
 //   use thoroughly in the my_macros.h file.
 #include "my_macros.h"
 
+#define WRITE_AS_FLOAT 0
+
+// typedefs
+#if WRITE_AS_FLOAT
+typedef float value_t;
+#else
+typedef double value_t;
+#endif
+
 // defined constants
 #define MASTER 0
 #define NO_MORE_SHELLS -1
@@ -55,14 +64,6 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
-#define WRITE_AS_FLOAT 1
-
-// typedefs
-#if WRITE_AS_FLOAT
-typedef float value_t;
-#else
-typedef double value_t;
-#endif
 
 typedef int16_t idx_t;
 typedef std::pair<sc::RefSymmSCMatrix, sc::RefSymmSCMatrix> SymmSCMatrixPair;
@@ -159,6 +160,7 @@ typedef struct {
 	bool max_only;
 	bool dynamic;
 	bool do_tar;  // Should we make tar files instead of making one, big, bin file?
+	int use_fake_ints;  // for debugging purposes
 	binfile_type out_type;
 } SparseIntOptions;
 

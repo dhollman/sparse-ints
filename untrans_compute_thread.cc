@@ -54,8 +54,9 @@ UntransComputeThread::UntransComputeThread(
 void
 UntransComputeThread::run()
 {
-	//=========================================================//
-	// open the output file(s)
+	/*=========================================================*/
+	/* Open the output file(s)	                          {{{1 */ #if fold_begin
+
 	ofstream* o = new ofstream[num_types_];
 	for_each(ity, num_types_){
 		stringstream sstr;
@@ -63,17 +64,16 @@ UntransComputeThread::run()
 		o[ity].open(sstr.str().c_str(), ios::binary | ios::out);
 	}
 
-	//=========================================================//
-	// Create the DistShellPair object
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Create the DistShellPair object and local vars     {{{1 */ #if fold_begin
+
 	DistShellPair shellpairs(msg, thr->nthread(), threadnum_,
 			lock_, basis1_, basis3_, opts.dynamic);
 	// Setup the print frequency of the DistShellPair object
 	shellpairs.set_print_percent(10);
 	if(opts.quiet) shellpairs.set_print_percent(1000);
 	if(opts.debug) shellpairs.set_debug(1);
-
-	//=========================================================//
-	// Compute the integrals assigned to this thread
 
 	int sh1 = 0, sh3 = 0;
 	int sh2, sh4, nsh2, nsh4;
@@ -83,6 +83,11 @@ UntransComputeThread::run()
 		buffers[ity] = inteval_->buffer(otypes_[ity]);
 	}
 	bool bs1eqbs3 = basis1_ == basis3_;
+
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Loop over tasks and compute untransformed ints     {{{1 */ #if fold_begin
+
 	while(shellpairs.get_task(sh1, sh3)) {
 		// TODO utilize permutational symmetry when possible
 		// For now, just unroll the permutational symmetry (which
@@ -137,6 +142,9 @@ UntransComputeThread::run()
 							int bf1234 = 0;
 							for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
 								value_t val = (value_t)buff[bf1234];
+								if(opts.use_fake_ints){
+									val = (value_t)fake_int(opts.use_fake_ints);
+								}
 								converted[bf1234] = val;
 								bf1234++;
 							}
@@ -145,7 +153,18 @@ UntransComputeThread::run()
 							#else
 							// Otherwise just write the buffer as is
 							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
-							o[ity].write((char*)buff, nfunc*sizeof(double));
+							if(opts.use_fake_ints){
+								int bf1234 = 0;
+								value_t converted[nfunc];
+								for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+									converted[bf1234] = (value_t)fake_int(opts.use_fake_ints);
+									bf1234++;
+								}
+								o[ity].write((char*)converted, nfunc*sizeof(double));
+							}
+							else{
+								o[ity].write((char*)buff, nfunc*sizeof(double));
+							}
 							#endif
 						}
 						else if(opts.out_type == MaxAbs){
@@ -174,12 +193,18 @@ UntransComputeThread::run()
 		} // End loop over permutations
 	} // End while get task
 
-	//=========================================================//
-	// close the output
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Cleanup	                 	                      {{{1 */ #if fold_begin
+
+	// Close the output files
 	for_each(ity, num_types_){
 		o[ity].close();
 	}
 	delete[] o;
+
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
 }
 
 

@@ -114,7 +114,15 @@ file_size_string(string file){
 	return memory_size_string(length);
 }
 
-
+inline double
+fake_int(int fake_num, int idx1=0, int idx2=0, int idx3=0, int idx4=0){
+	switch(fake_num){
+	case 1:
+		return 1.0;
+	default:
+		return 0.0;
+	}
+}
 
 inline void
 copy_buffer(ifstream& i, ofstream& o){

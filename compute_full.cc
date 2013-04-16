@@ -35,6 +35,8 @@ sparse_ints::compute_full_trans_ints(
     	const sc::Ref<sc::LocalSCMatrixKit>& inkit
 )
 {
+	/*=========================================================*/
+	/* Set up local variables  	                          {{{1 */ #if fold_begin
     int me = msg->me();
     int nthr = thr->nthread();
 
@@ -46,27 +48,35 @@ sparse_ints::compute_full_trans_ints(
     	}
     }
 
-    // Setup the worker threads
+    /***********************************************************/ #endif //1}}}
+    /*=========================================================*/
+	/* Set up the worker threads                          {{{1 */ #if fold_begin
+
+	// Crete the locks
     Ref<ThreadLock> compute_lock = thr->new_lock();
     Ref<ThreadLock> comm_lock = thr->new_lock();
     Ref<ThreadLock> queue_lock = thr->new_lock();
+
+    // Create the matrix kit if needed
     Ref<LocalSCMatrixKit> kit;
     if(inkit.nonnull())
     	kit = inkit;
     else
     	kit = new LocalSCMatrixKit();
+
+    // Make a prefix for the temporary files used by the compute nodes
+    string tmp_prefix;
+    tmp_prefix = tmpdir + "/node_";
+
+    // Create the send and receive thread objects
     DBG("Creating send thread");
     SendThread* send_thread = new SendThread(bs1, bs2, bs3, bs4, kit);
     thr->add_thread(nthr-2, send_thread);
     DBG("Creating receive thread");
     ReceiveThread* recv_thread = new ReceiveThread(bs1, bs2, bs3, bs4, kit);
     thr->add_thread(nthr-1, recv_thread);
-    string tmp_prefix;
-    {
-    	stringstream sstr;
-    	sstr << tmpdir << "/tmp_";
-    	tmp_prefix = sstr.str();
-    }
+
+    // Create the comptue threads
     for_each(ithr, nthr-2){
     	DBG("Creating compute thread " << ithr);
     	FullTransComputeThread* comp_thread = new FullTransComputeThread(
@@ -79,17 +89,20 @@ sparse_ints::compute_full_trans_ints(
     	thr->add_thread(ithr, comp_thread);
     }
 
-    //============================================================
-    // Run the threads
+    /***********************************************************/ #endif //1}}}
+    /*=========================================================*/
+	/* Run the threads     	                              {{{1 */ #if fold_begin
+
 	timer.enter("run threads");
 	DBG("Running " << nthr << " total threads, two of which are comm threads.");
     thr->start_threads();
     thr->wait_threads();
 	timer.exit("run threads");
 
-    //============================================================
-    // Gather the results
-    // First gather on each node...
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Gather results on each node                        {{{1 */ #if fold_begin
+
     timer.enter("gather results");
     timer.enter("node gather");
 	if(!opts.quiet && me == MASTER) cout << "  Gathering results on a per-node basis..." << endl;
@@ -158,16 +171,20 @@ sparse_ints::compute_full_trans_ints(
 	}
 	timer.exit("node gather");
 	DBG("Waiting for other nodes to finish");
-    //============================================================
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Sync nodes, waiting for all nodes to finish        {{{1 */ #if fold_begin
 	timer.enter("sync");
 	msg->sync();
 	timer.exit("sync");
 	for_each(inode, msg->n()){
 		msg->sum(quartets_processed[inode], thr->nthread());
     }
-    //============================================================
-	// Now gather across multiple nodes.  This could be done in a
-	//   tree fashion if it becomes a bottleneck...
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Gather results from all nodes into one file        {{{1 */ #if fold_begin
+	// This could be done in a tree fashion if it becomes a bottleneck...
+	// TODO Tar instead of gather
 	timer.enter("master gather");
 	if(me == MASTER) {
 		if(!opts.quiet) cout << "  Gathering results from all nodes..." << endl;
@@ -208,10 +225,11 @@ sparse_ints::compute_full_trans_ints(
 	timer.exit("master gather");
 	timer.exit("gather results");
 
-
-    //============================================================
-    // Cleanup
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Cleanup             		                          {{{1 */ #if fold_begin
     thr->delete_threads();
-
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
 }
 

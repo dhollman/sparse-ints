@@ -182,13 +182,17 @@ FullTransComputeThread::run(){
 						int idx1 = sh1begin+bf1, idx2 = sh2begin+bf2;
 						for_each(bf3,nbf3, bf4,nbf4){
 							int bfpair = bf3*nbf4 + bf4;
+							double val = buffer[bf1234];
+							if(opts.use_fake_ints){
+								val = fake_int(opts.use_fake_ints);
+							}
 							for_each(ibf1,nbf1tot){
-								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * buffer[bf1234]); //((sh1begin+bf1)*30 + (sh2begin+bf2)*20 + (sh3begin+bf3)*10 + sh4begin+bf4)); //buffer[bf1234]);
+								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * val);
 							}
 							if(bs1_eq_bs2 && sh1 != sh2 && !ignore_symmetry){
 								for_each(ibf1,nbf1tot){
 									// Utilize the M-N symmetry in (MN|RS)
-									ints1q[bfpair].accumulate_element(ibf1, idx1, P1_(ibf1, idx2) * buffer[bf1234]);
+									ints1q[bfpair].accumulate_element(ibf1, idx1, P1_(ibf1, idx2) * val);
 								}
 							}
 							bf1234++;

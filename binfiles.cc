@@ -106,7 +106,8 @@ write_density_binfile(
     int ispot = 0;
     for_each(row,nrc){
 		for_each(col,row+1){
-			vals[ispot++] = (value_t)P.get_element(row, col);
+			vals[ispot] = (value_t)P.get_element(row, col);
+			ispot++;
 		}
     }
     assert(ispot == nrc*(nrc+1)/2);

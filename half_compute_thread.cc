@@ -61,8 +61,9 @@ HalfTransComputeThread::HalfTransComputeThread(
 void
 HalfTransComputeThread::run()
 {
-	//=========================================================//
-	// open the output file(s)
+	/*=========================================================*/
+	/* Open the output file(s)	                          {{{1 */ #if fold_begin
+
 	std::map<string, ofstream* > o;
 	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
 		string pair_name = (*mapit_).first;
@@ -74,17 +75,16 @@ HalfTransComputeThread::run()
 		}
 	}
 
-	//=========================================================//
-	// Create the DistShellPair object
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/* Create the DistShellPair and set up local vars     {{{1 */ #if fold_begin
+
 	DistShellPair shellpairs(msg, thr->nthread(), threadnum_,
 			lock_, basis1_, basis3_, opts.dynamic);
 	// Setup the print frequency of the DistShellPair object
 	shellpairs.set_print_percent(10);
 	if(opts.quiet) shellpairs.set_print_percent(1000);
 	if(opts.debug) shellpairs.set_debug(1);
-
-	//=========================================================//
-	// Compute the integrals assigned to this thread
 
 	int sh1 = 0, sh3 = 0;
 	int sh2, sh4, nsh2, nsh4;
@@ -94,14 +94,28 @@ HalfTransComputeThread::run()
 		buffers[ity] = inteval_->buffer(otypes_[ity]);
 	}
 	bool bs1eqbs3 = basis1_ == basis3_;
+
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/*#########################################################*/
+	/*=========================================================*/
+	/* Loop over tasks and compute half-transformed ints  {{{1 */ #if fold_begin
+
 	while(shellpairs.get_task(sh1, sh3)) {
+		// Loop over permutation of the indices sh1 and sh3 to
+		//   unroll permutational symmetry
 		// TODO utilize permutational symmetry when possible
 		for(int iperm = 0; iperm < ((sh1==sh3 || !bs1eqbs3) ? 1 : 2); ++iperm){
 			if(iperm == 1){
+				// Swap indices
 				int tmp = sh3;
 				sh3 = sh1;
 				sh1 = tmp;
 			}
+
+			/*------------------------------------------------------*/
+			/* Compute the untransformed ints for the pair {{{2     */ #if fold_begin
+
 			nsh2 = basis2_->nshell();
 			nsh4 = basis4_->nshell();
 			(*quartets_processed_) += nsh2*nsh4;
@@ -132,34 +146,29 @@ HalfTransComputeThread::run()
 					const int bfoff4 = basis4_->shell_to_function(sh4);
 
 					// Compute the shell
-					if (opts.debug) {
-						lock_->lock();
-						cout << "        Computing shell quartet (" << sh1
-								<< "," << sh2 << "|" << sh3 << "," << sh4
-								<< ") on node "  << msg->me() << ", thread "
-								<< threadnum_ << "." << endl;
-						lock_->unlock();
-					}
 					inteval_->compute_shell(sh1, sh2, sh3, sh4);
-
 
 					// Loop over basis functions and store
 					int nfunc = nbf1*nbf2*nbf3*nbf4;
 					for_each(ity, num_types_){
 						const double* buff = buffers[ity];
 						int bf1234 = 0;
-						DBG_MSG("::nbf1="<<nbf1<<", nbf3="<<nbf3)
 						for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
 							int bfpair = bf1*nbf3 + bf3;
-							DBG_MSG("::  sh1="<<sh1<<", sh3="<<sh3<<", bfpair=" << bfpair << ", bf2="<<bf2<<", bf4="<<bf4<<", value="<<buff[bf1234]);
-							halft[ity][bfpair].set_element(bfoff2+bf2, bfoff4+bf4, buff[bf1234]);
+							double val = buff[bf1234];
+							if(opts.use_fake_ints){
+								val = fake_int(opts.use_fake_ints);
+							}
+							halft[ity][bfpair].set_element(bfoff2+bf2, bfoff4+bf4, val);
 							bf1234++;
 						}
 					} // end loop over types
 
 				} // end loop over index 4
 			} // end loop over index 2
-			// Now transform and find maxima
+			/*******************************************************/ #endif //2}}}
+			/*------------------------------------------------------*/
+			/* Do the two quarter transformations              {{{2 */ #if fold_begin
 			int nbf2tot = basis2_->nbasis();
 			int nbf4tot = basis4_->nbasis();
 			iterate(mapit_, dens_pairs_){
@@ -202,19 +211,29 @@ HalfTransComputeThread::run()
 					}
 				} // end loop over types
 			} // End loop over density matrix pairs
+			/********************************************************/ #endif //2}}}
+			/*------------------------------------------------------*/
+
 		} // End loop over permutations
 	} // End while get task
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
+	/*#########################################################*/
+	/*=========================================================*/
+	/* Cleanup                                            {{{1 */ #if fold_begin
 
-	//=========================================================//
-	// close the output
+	// Loop over the density pairs and integral types
 	for(mapit_ = dens_pairs_.begin(); mapit_ != dens_pairs_.end(); mapit_++){
 		string pair_name = (*mapit_).first;
 		for_each(ity, num_types_){
+			// Close the output files
 			o[pair_name][ity].close();
 		}
 		delete[] o[pair_name];
 	}
 
+	/***********************************************************/ #endif //1}}}
+	/*=========================================================*/
 }
 
 

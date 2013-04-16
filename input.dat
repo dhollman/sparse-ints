@@ -54,7 +54,7 @@ h2o<Molecule>: (
 
 currentbas<GaussianBasisSet>: (
   molecule = $:molecule
-  name = "cc-pVDZ"
+  name = "cc-pVDZ-F12"
 )
 
 auxbas<GaussianBasisSet>: ( 
@@ -81,7 +81,7 @@ all: (
    corr_type = "stg-6g"
    debug = no
    do_eri = yes
-   do_f12 = yes
+   do_f12 = no
    do_f12g12 = no
    do_O = yes
    max_only = no
@@ -95,6 +95,12 @@ untrans: (
         yes
         yes
     }
+    %{do_ri} = {
+    %    no
+    %    no
+    %    no
+    %    no
+    %}
 
 )
 
@@ -109,16 +115,19 @@ halftrans: (
   }
 )
 
-%fulltrans: (
-%   {densmats} = { 
+fulltrans: (
+   {densmats} = { 
 %        IIII
 %       PIPI
 %       PPII
 %       IPIP
-%       IPIQ
+%       PPPP
+%       PQPQ
 %       IPII
 %       IIPI
 %       IIIP
-%       %IOIO
-%   }
-%)
+       RORO
+%       OOOO
+       RRRR
+   }
+)

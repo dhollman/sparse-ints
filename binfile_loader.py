@@ -26,10 +26,10 @@ def is_newer(filea, fileb):
 def make_matrix(shape, mm_filename, bin_filename=None, force_reload=False):
     shape = tuple(shape)
     if not force_reload and (exists(mm_filename) and (bin_filename is None or is_newer(mm_filename, bin_filename))):
-        rv = np.memmap(mm_filename, mode="r", shape=shape, dtype='float32')
+        rv = np.memmap(mm_filename, mode="r", shape=shape, dtype='float64')
         return rv, True
     else:
-        rv = np.memmap(mm_filename, mode="w+", shape=shape, dtype='float32')
+        rv = np.memmap(mm_filename, mode="w+", shape=shape, dtype='float64')
         return rv, False
 
 def make_mag_matrix(shape, mags_filename, mm_filename=None, force_new = False):

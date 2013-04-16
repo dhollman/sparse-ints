@@ -62,6 +62,7 @@
             macro_dispatcher__(func, nargs)
 #define macro_dispatcher__(func, nargs) \
             func ## nargs
+
 //############################################################################//
 
 
@@ -78,10 +79,7 @@
 #define iterate(iter, over_what) \
 	for(iter = over_what.begin(); iter != over_what.end(); iter++)
 
-// For use with "assert(not_implemented)".  This is probably a bit too clever
-//    and should be avoided in public code...
-#define not_implemented false
-
+//############################################################################//
 
 #define PRINT_LIST(list, length, width, nperline) \
 		for_each(ind, length){ \
@@ -93,3 +91,12 @@
 		if (length % nperline != 0) \
 			cout << endl; \
 		cout << setw(0);
+
+//############################################################################//
+
+// For use with "assert(not_implemented)".  This is probably a bit too clever
+//    and should be avoided in public code...
+#define not_implemented false
+
+// For creation of manual folds in Eclipse using #if fold_begin ... #endif
+#define fold_begin 1

@@ -123,8 +123,10 @@ main(int argc, char** argv) {
     // Get the auxiliary basis set
     Ref<GaussianBasisSet> auxbs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("aux_basis").pointer(), "main\n");
+
     // Get the molecule object
     Ref<Molecule> mol = obs->molecule();
+
     // Get some boolean options
     SparseIntOptions opts;
     opts.debug = keyval->booleanvalue("debug", KeyValValueboolean(false));
@@ -132,12 +134,17 @@ main(int argc, char** argv) {
     opts.quiet = keyval->booleanvalue("quiet", KeyValValueboolean(false));
     opts.dynamic = keyval->booleanvalue("dynamic", KeyValValueboolean(true));
     opts.max_only = keyval->booleanvalue("max_only", KeyValValueboolean(true));
-    if(opts.max_only){
+
+    // For debugging purposes, force the computation
+    //   of various types of "fake" integrals to try
+    //   and isolate problems with the transformation
+    opts.use_fake_ints = keyval->intvalue("use_fake_ints", KeyValValueint(0));
+
+    //Set the output type of the integrals
+    if(opts.max_only)
     	opts.out_type = MaxAbs;
-    }
-    else{
+    else
     	opts.out_type = AllInts;
-    }
     sparse_ints::opts = opts;
 
     // Get which integrals to do
@@ -152,8 +159,9 @@ main(int argc, char** argv) {
     bool do_Q = keyval->booleanvalue("do_Q", KeyValValueboolean(false));
     bool do_O = keyval->booleanvalue("do_O", KeyValValueboolean(false));
 
-    //---------------------------------------------------------//
-    // Options specific to Untransformed integral code:
+    /*-----------------------------------------------------*/
+	/*  Options specific to untrans int code          {{{2 */ #if fold_begin
+    //
     bool use_ribs[4];
     if(do_untrans){
     	for_each(nriq, 4){
@@ -161,8 +169,9 @@ main(int argc, char** argv) {
     	}
     }
 
-    //---------------------------------------------------------//
-    // Options specific to Half Transformation code:
+    /*******************************************************/ #endif //2}}}
+    /*-----------------------------------------------------*/
+	/*  Options specific to half trans code           {{{2 */ #if fold_begin
 
     // Get the list of density matrix transformations to do.
     int num_densmats_half = 0;
@@ -175,8 +184,9 @@ main(int argc, char** argv) {
 		}
     }
 
-    //---------------------------------------------------------//
-    // Options specific to Full Transformation code:
+    /*******************************************************/ #endif //2}}}
+    /*-----------------------------------------------------*/
+	/* Options specific to full trans code            {{{2 */ #if fold_begin
 
     // Get the list of density matrix transformations to do.
     int num_densmats_full = 0;
@@ -188,6 +198,8 @@ main(int argc, char** argv) {
 			densmats_full[imat] = fulltranskv->stringvalue("densmats", imat, KeyValValuestring("PQPQ"));
 		}
     }
+    /*******************************************************/ #endif //2}}}
+    /*-----------------------------------------------------*/
 
 
     /***********************************************************/ #endif
@@ -261,6 +273,12 @@ main(int argc, char** argv) {
     else
     	assert(not_implemented);
 
+    if(opts.use_fake_ints){
+    	stringstream sstr;
+    	sstr << prefix << "fake" << opts.use_fake_ints << "_";
+    	prefix = sstr.str();
+    }
+
     string untrans_prefix = prefix + "";
     if(do_untrans){
     	int bsval = 0;
@@ -276,7 +294,7 @@ main(int argc, char** argv) {
 			}
     	}
     	if(need_write){
-    		untrans_prefix += "_" + bs_indicator + "_";
+    		untrans_prefix += bs_indicator + "_";
     	}
     }
 

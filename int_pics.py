@@ -30,6 +30,7 @@ elif len(sys.argv) == 4:
     sets = [(sys.argv[1], sys.argv[2], sys.argv[3])]
 else:
     # Get everything we can
+    # TODO we can do better than this.  It's becoming a mess
     sets = []
     for filen in glob(matrix_folder + "*"):
         parts = filen.split('_')
@@ -206,9 +207,10 @@ num_processed = 0
 
 for stuff in sets:
     prefix = "_".join(stuff) + "_"
-    mats = int_mats + [a+b+c for a, b, c in product(dens_mats, dens_mats, int_mats)] + dens_mats
-    for p,q,r,s in product("PQOIR0", repeat=4):
-        mats += [p+q+r+s+m for m in int_mats]
+    all_stuff = glob(matrix_folder + "_".join(stuff) + "*.bin")
+    mats = [".".join(a.split(".")[:-1]).split("_")[-1] for a in all_stuff]
+    mats = list(set(mats))
+
     doing_printed = False
 
     num_mats += len([mat for mat in mats if exists(bin_name(mat))])
