@@ -28,5 +28,11 @@ void write_header(
 	const sparse_ints::binfile_type ty
 );
 
+void write_density_binfile(
+	sc::RefSymmSCMatrix P,
+	std::string filename,
+	sc::Ref<sc::GaussianBasisSet> basis
+);
+
 
 #endif /* BINFILES_H_ */

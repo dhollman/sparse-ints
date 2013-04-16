@@ -147,6 +147,11 @@ main(int argc, char** argv) {
     bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
 
+    // Get which (extra) density matrices to do, even if we don't need them
+    bool do_P = keyval->booleanvalue("do_P", KeyValValueboolean(false));
+    bool do_Q = keyval->booleanvalue("do_Q", KeyValValueboolean(false));
+    bool do_O = keyval->booleanvalue("do_O", KeyValValueboolean(false));
+
     //---------------------------------------------------------//
     // Options specific to Untransformed integral code:
     bool use_ribs[4];
@@ -242,6 +247,7 @@ main(int argc, char** argv) {
     string output_dir = keyval->stringvalue("output_dir");
     string molname = keyval->stringvalue("molname");
     string prefix = output_dir + "/" + molname + "_" + basname + "_" + abasname + "_";
+    string densprefix = prefix + "";
     if(opts.out_type == MaxAbs)
 		prefix += "allmax_";
     else if(opts.out_type == AllInts)
@@ -367,6 +373,10 @@ main(int argc, char** argv) {
 		}
     }
 
+    need_P = need_P || do_P;
+    need_Q = need_Q || do_Q;
+    need_O = need_O || do_O;
+
     // Only get P and Q if we need them.
     if(need_P || need_Q || need_O){
     	// Get P
@@ -397,6 +407,7 @@ main(int argc, char** argv) {
 		SCMatrixKit::set_default_matrixkit(kit);
     }
 
+
     // Get O if needed
     if(need_O){
     	// Get O
@@ -424,6 +435,17 @@ main(int argc, char** argv) {
     	zero.assign(0.0);
     }
 
+    // Print the density matrices to binary files if we have them
+    if(need_P && me == MASTER){
+    	write_density_binfile(P, densprefix + "P.bin", obs);
+    }
+    if(need_Q && me == MASTER){
+    	write_density_binfile(Q, densprefix + "Q.bin", obs);
+    }
+    if(need_O && me == MASTER){
+    	write_density_binfile(O, densprefix + "O.bin", ribs);
+    }
+
     /***********************************************************/ #endif
     /*=========================================================*/
     /*#########################################################*/
@@ -431,6 +453,12 @@ main(int argc, char** argv) {
     /* Do the untransformed integrals if we need to            */ #if fold_begin
 
     if(do_untrans){
+    	if(me == MASTER){
+			cout << "========================================================================" << endl;
+			cout << "=                  Computing Untransformed Integrals                   =" << endl;
+			cout << "========================================================================" << endl;
+			cout << endl;
+    	}
 		Ref<GaussianBasisSet> basis_sets[4];
 		for_each(iri, 4){
 			if(use_ribs[iri])
@@ -506,6 +534,12 @@ main(int argc, char** argv) {
     /*=========================================================*/
     /* Do the half transformed integrals if we need to         */ #if fold_begin
     if(do_halftrans){
+    	if(me == MASTER){
+			cout << "========================================================================" << endl;
+			cout << "=                Computing Half Transformed Integrals                  =" << endl;
+			cout << "========================================================================" << endl;
+			cout << endl;
+    	}
 		if(do_eri || do_f12 || do_f12g12){
 			timer.enter("half trans ERI/F12");
 			int num_types = do_eri + do_f12 + do_f12g12;
@@ -637,6 +671,12 @@ main(int argc, char** argv) {
     RefSymmSCMatrix dmats[4];
     Ref<GaussianBasisSet> basis_sets[4];
     if(do_fulltrans){
+    	if(me == MASTER){
+			cout << "========================================================================" << endl;
+			cout << "=               Computing Fully Transformed Integrals                  =" << endl;
+			cout << "========================================================================" << endl;
+			cout << endl;
+    	}
 		for_each(iset, num_densmats_full){
 			if(me == MASTER){
 				cout << "========================================" << endl;

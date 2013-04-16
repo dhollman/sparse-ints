@@ -85,7 +85,8 @@ typedef enum BinfileContent {
 	Average = 4,
 	StdDev = 8,
 	Median = 16,
-	AllIntsUntransformed = 32
+	AllIntsUntransformed = 32,
+	DensityMatrix = 64
 } binfile_type;
 
 class MultiTimer {

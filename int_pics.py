@@ -48,6 +48,8 @@ else:
             if tmp not in sets:
                 sets.append(tuple(tmp))
 
+#TODO find all file names available
+
 
 
 min_val = 10
@@ -71,7 +73,7 @@ tmpdir = mkdtemp(dir=os.getenv("SCRATCH", default='/tmp'))
 int_mats = ['F', 'g', 'Fg', 'Fsq', 'DC']
 dens_mats = ['P', 'Q', 'O', 'I', 'R', '0']
 #max_mm_size = float("inf")
-max_mm_size = 200 * 1024 * 1024
+max_mm_size = 35 * 1024 * 1024
 #max_mm_size = 3000
 
 
@@ -90,18 +92,15 @@ def data_size_str(bytes):
     else:
         return "{:.2f} TB".format(v/1024/1024/1024/1024)
 
-def load_dens_binfile(mat):
-    raise NotImplementedError()
-
 def load_binfile(mat):
     filename = bin_name(mat)
     print "  Loading matrix {} from {}".format(mat, filename)
-    ints = LoadedIntFile(filename)
+    ints = LoadedIntFile(filename, verbose=True)
     ints.load_mags(min_val, max_val)
-    print "\n    Loading complete!  Memmap file size is {}".format(
+    print "    Loading complete!  Memmap file size is {}".format(
         data_size_str(os.path.getsize(mem_map_name(mat)))
     )
-    if ints.ints_type == 0:
+    if ints.ints_type == 0 or ints.ints_type == 32:
         shp = ints.loaded_array.mag_array.shape
         ints.loaded_array.mag_array = ints.loaded_array.mag_array.reshape((shp[0]*shp[1], shp[2]*shp[3]))
     return ints.loaded_array
@@ -255,10 +254,7 @@ for stuff in sets:
 
         # load the matrix
         try:
-            if mat in dens_mats:
-                m = load_dens_binfile(mat)
-            else:
-                m = load_binfile(mat)
+            m = load_binfile(mat)
         except Exception as e:
             print "  Could not load binary file {}.  The following error was raised:\n    {}".format(
                 bin_name(mat), type(e).__name__ + ": " + e.message

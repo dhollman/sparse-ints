@@ -1,4 +1,5 @@
 from __future__ import division
+from itertools import product
 from operator import attrgetter
 from struct import unpack
 import os
@@ -22,9 +23,9 @@ def tensor_and_mags_from_binfile(filename, min_value_or_mag_function, max_value=
 def is_newer(filea, fileb):
     return getmtime(filea) - getmtime(fileb) > 0
 
-def make_matrix(shape, mm_filename, bin_filename=None):
+def make_matrix(shape, mm_filename, bin_filename=None, force_reload=False):
     shape = tuple(shape)
-    if exists(mm_filename) and (bin_filename is None or is_newer(mm_filename, bin_filename)):
+    if not force_reload and (exists(mm_filename) and (bin_filename is None or is_newer(mm_filename, bin_filename))):
         rv = np.memmap(mm_filename, mode="r", shape=shape, dtype='float32')
         return rv, True
     else:
@@ -77,7 +78,9 @@ class BasisSet(object):
         # Sort is guarenteed to be stable
         self.shells = shells
         if not shells == sorted(shells, key=attrgetter('center')):
-            raise NotImplementedError()
+            raise NotImplementedError("Shell center ordering was: {}".format(
+                ", ".join(str(s.center) for s in shells)
+            ))
         self.center_to_function = []
         self.center_to_shell = []
         self.shell_to_function = []
@@ -136,7 +139,7 @@ class Shell(object):
 
 class BasisFunctionTensor(object):
 
-    def __init__(self, basis_sets, int_file_obj):
+    def __init__(self, basis_sets, int_file_obj, force_reload=False):
         self.basis_sets = basis_sets
         self.shape = tuple(b.nbf for b in self.basis_sets)
         self.int_file_obj = int_file_obj
@@ -144,7 +147,8 @@ class BasisFunctionTensor(object):
         self.array, self.matrix_filled = make_matrix(
             self.shape,
             int_file_obj.memmap_filename,
-            bin_filename=int_file_obj.filename
+            bin_filename=int_file_obj.filename,
+            force_reload=force_reload
         )
         self.mag_matrix, self.mags_filled = None, False
 
@@ -178,8 +182,8 @@ class BasisFunctionTensor(object):
 
 class BasisFunctionMatrix(BasisFunctionTensor):
 
-    def __init__(self, bs1, bs3, int_file_obj):
-        super(BasisFunctionMatrix, self).__init__((bs1,bs3), int_file_obj)
+    def __init__(self, bs1, bs3, int_file_obj, **kwargs):
+        super(BasisFunctionMatrix, self).__init__((bs1,bs3), int_file_obj, **kwargs)
 
     @property
     def nrow(self):
@@ -210,10 +214,11 @@ class BasisFunctionMatrix(BasisFunctionTensor):
 
 class LoadedIntFile(object):
 
-    def __init__(self, filename, force_reload=False):
+    def __init__(self, filename, force_reload=False, verbose=False):
         self.filename = filename
         self.force_reload = force_reload
         self.mag_filenames = []
+        self.verbose = verbose
         self._load()
 
     @property
@@ -262,6 +267,8 @@ class LoadedIntFile(object):
                 self.loaded_array.mag_arrays[self.loaded_array.mag_filename] = self.loaded_array.mag_array
                 self.loaded_array.mag_array = self.loaded_array.mag_arrays[self.mags_memmap_filename(mag_function_or_min_val, max_val)]
                 self.loaded_array.mag_filename = self.mags_memmap_filename(mag_function_or_min_val, max_val)
+            if self.verbose:
+                print "    Magnitudes already loaded."
             return
         else:
             if callable(mag_function_or_min_val):
@@ -276,6 +283,7 @@ class LoadedIntFile(object):
                         return -min_val-max_val
                     return log10(abs(val)) + min_val
             mag_vect = np.vectorize(mag)
+            print "    Loading magnitudes."
             self.loaded_matrix.mag_array = mag_vect(self.loaded_matrix.array)
             self.loaded_matrix.mags_filled = True
 
@@ -331,10 +339,52 @@ class LoadedIntFile(object):
                 self._load_basis_legacy(f)
                 self._load_maxes(f)
             #========================================#
-            else:
+            elif ints_type in [2, 4, 8, 16]:
                 # File only contains maxima/average/std_dev/whatever
                 self._load_basis(f)
                 self._load_maxes(f)
+            elif ints_type == 32:
+                # Special untransformed integrals format
+                self._load_basis(f)
+                self._load_untrans_all(f)
+            elif ints_type == 64:
+                # Density matrix format
+                self._load_dens_basis(f)
+                self._load_dens(f)
+            if self.verbose: print "\n    Done loading bin file into memeory mapped structure."
+
+    def _load_dens_basis(self, f):
+        int_ = self.int_
+        natoms, nshell = int_(2)
+        shells = []
+        tot_bf = 0
+        for ish in xrange(nshell):
+            center, nbf, max_am, min_am = int_(4)
+            sh = Shell(ish, center, nbf, max_am, min_am)
+            sh.first_bf = tot_bf
+            tot_bf += nbf
+            sh.nprimitive = int_(1)[0]
+            sh.ncontraction = int_(1)[0]
+            shells.append(sh)
+        self.basis_sets = [BasisSet(shells)]
+
+    def _load_dens(self, f):
+        metadata_size = f.tell()
+        tot_size = getsize(self.filename)
+        data_size = tot_size - metadata_size
+        pbar = ProgressBar(data_size, indent='    ')
+        float_ = self.float_
+        self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[0], self, force_reload=self.force_reload)
+        if not self.loaded_matrix.matrix_filled or self.force_reload:
+            for row in xrange(self.basis_sets[0].nbf):
+                for col in xrange(row + 1):
+                    val = float_(1)[0]
+                    self.loaded_matrix.array[row, col] = val
+                    self.loaded_matrix.array[col, row] = val
+                    if self.verbose: pbar.update(f.tell()-metadata_size)
+        else:
+            print "    Warning:  Matrix not reloaded"
+        self.loaded_matrix.matrix_filled = True
 
     def _load_basis_legacy(self, f):
         # Legacy support for bs1==bs2==bs3==bs4 max only files
@@ -363,8 +413,8 @@ class LoadedIntFile(object):
                 sh = Shell(ish, center, nbf, max_am, min_am)
                 sh.first_bf = tot_bf
                 tot_bf += nbf
-                sh.nprimitive = int_(1)
-                sh.ncontraction = int_(1)
+                sh.nprimitive = int_(1)[0]
+                sh.ncontraction = int_(1)[0]
                 shells.append(sh)
             self.basis_sets.append(BasisSet(shells))
 
@@ -374,9 +424,9 @@ class LoadedIntFile(object):
         data_size = tot_size - metadata_size
         float_, short_ = self.float_, self.short_
         pbar = ProgressBar(data_size, indent='    ')
-        self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[2], self)
-        if not self.loaded_matrix.matrix_filled and not self.force_reload:
-            print "  Loading matrix from {}".format(self.filename)
+        self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[2], self, force_reload=self.force_reload)
+        if not self.loaded_matrix.matrix_filled or self.force_reload:
+            if self.verbose: print "  Loading matrix from {}".format(self.filename)
             while True:
                 try:
                     if not self.loaded_matrix.matrix_filled:
@@ -386,7 +436,7 @@ class LoadedIntFile(object):
                         buff = np.array(float_(nfunc))
                         buff = buff.reshape((s1.nfunction, s3.nfunction))
                         self.loaded_matrix.array[s1.slice, s3.slice] = buff
-                        pbar.update(f.tell()-metadata_size)
+                        if self.verbose: pbar.update(f.tell()-metadata_size)
                 except EOFError:
                     # We've reached the end of the file, so break
                     break
@@ -395,6 +445,8 @@ class LoadedIntFile(object):
                     os.unlink(self.memmap_filename)
                     # then reraise the exception
                     raise
+        else:
+            print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
 
     def _load_all(self, f):
@@ -403,19 +455,23 @@ class LoadedIntFile(object):
         data_size = tot_size - metadata_size
         float_, short_ = self.float_, self.short_
         pbar = ProgressBar(data_size, indent='    ')
-        self.loaded_matrix = BasisFunctionTensor(self.basis_sets, self)
-        if not self.loaded_matrix.matrix_filled and not self.force_reload:
-            print "  Loading matrix from {}".format(self.filename)
+        self.loaded_matrix = BasisFunctionTensor(self.basis_sets, self, force_reload=self.force_reload)
+        if not self.loaded_matrix.matrix_filled or self.force_reload:
+            if self.verbose: print "  Loading matrix from {}".format(self.filename)
             while True:
                 try:
                     si1, _, si3, __ = short_(4)
+                    if si1 > self.basis_sets[0].nshell:
+                        raise IndexError("got index si1 = {} which is out of range".format(si1))
+                    if si3 > self.basis_sets[2].nshell:
+                        raise IndexError("got index si3 = {} which is out of range".format(si3))
                     s1 = self.basis_sets[0].shells[si1]
                     s3 = self.basis_sets[2].shells[si3]
                     nfunc = s1.nfunction * s3.nfunction * self.basis_sets[1].nbf * self.basis_sets[3].nbf
                     buff = np.array(float_(nfunc))
                     buff = buff.reshape((s1.nfunction, s3.nfunction, self.basis_sets[1].nbf, self.basis_sets[3].nbf))
                     self.loaded_matrix.array[s1.slice, :, s3.slice, :] = buff.transpose([0,2,1,3])
-                    pbar.update(f.tell()-metadata_size)
+                    if self.verbose: pbar.update(f.tell()-metadata_size)
                 except EOFError:
                     # We've reached the end of the file, so break
                     break
@@ -424,6 +480,59 @@ class LoadedIntFile(object):
                     os.unlink(self.memmap_filename)
                     # then reraise the exception
                     raise
+        else:
+            print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
 
+    def _load_untrans_all(self, f):
+        metadata_size = f.tell()
+        tot_size = getsize(self.filename)
+        data_size = tot_size - metadata_size
+        float_, short_ = self.float_, self.short_
+        pbar = ProgressBar(data_size, indent='    ')
+        self.loaded_matrix = BasisFunctionTensor(self.basis_sets, self, force_reload=self.force_reload)
+        loaded_quartets = np.ndarray(
+            shape=(
+                self.basis_sets[0].nshell,
+                self.basis_sets[1].nshell,
+                self.basis_sets[2].nshell,
+                self.basis_sets[3].nshell
+            ),
+            dtype=bool
+        )
+        loaded_quartets[...] = False
+        if not self.loaded_matrix.matrix_filled or self.force_reload:
+            if self.verbose: print "  Loading matrix from {}".format(self.filename)
+            while True:
+                try:
+                    si1, si2, si3, si4 = short_(4)
+                    loaded_quartets[si1,si2,si3,si4] = True
+                    s1 = self.basis_sets[0].shells[si1]
+                    s2 = self.basis_sets[1].shells[si2]
+                    s3 = self.basis_sets[2].shells[si3]
+                    s4 = self.basis_sets[3].shells[si4]
+                    nfunc = s1.nfunction * s2.nfunction * s3.nfunction * s4.nfunction
+                    buff = np.array(float_(nfunc))
+                    buff = buff.reshape((s1.nfunction, s2.nfunction, s3.nfunction, s4.nfunction))
+                    self.loaded_matrix.array[s1.slice, s2.slice, s3.slice, s4.slice] = buff
+                    if self.verbose: pbar.update(f.tell()-metadata_size)
+                except EOFError:
+                    # We've reached the end of the file, so break
+                    break
+                except Exception:
+                    # First delete the mem_map_file, since the whole thing was not successfully loaded
+                    os.unlink(self.memmap_filename)
+                    # then reraise the exception
+                    raise
+            if not np.all(loaded_quartets.ravel()):
+                print "  Warning: not all quartets were found."
+                numnl = 0
+                for i,j,k,l in product(*[xrange(s) for s in loaded_quartets.shape]):
+                    if not loaded_quartets[i,j,k,l]:
+                        print "    Not loaded: {}".format((i,j,k,l))
+                        numnl+= 1
+                print "    Total shell quartets not loaded: {}".format(numnl)
+        else:
+            print "    Warning:  Matrix not reloaded"
 
+        self.loaded_matrix.matrix_filled = True

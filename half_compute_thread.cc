@@ -172,16 +172,12 @@ HalfTransComputeThread::run()
 					o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
 					for_each(ibf1,nbf1, ibf3,nbf3){
 						int ipair = ibf1*nbf3 + ibf3;
-						DBG_MSG("Transforming ints for bf pair " << ipair
-								<< "/" << nbfpairs << " of shell pair (" << sh1 << ", " << sh3 << ")")
 
 						// First quarter transform
 						RefSCMatrix transtmp = P1 * halft[ity][ipair];
-						DBG_MSG(":: First quarter transform done for " << pairname)
 
 						// Second quarter transform
 						RefSCMatrix myhalf = transtmp * P2;
-						DBG_MSG(":: Second quarter transform done for " << pairname)
 
 						if(opts.out_type == MaxAbs){
 							// get the maximum absolute value

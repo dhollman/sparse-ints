@@ -79,31 +79,29 @@ sparse_ints::compute_untrans_threaded(
     timer.enter("node gather");
 	if(!opts.quiet && me == MASTER)
 		cout << "  Gathering results on a per-node basis..." << endl;
-	if(me != MASTER){
-		for_each(ity, num_types){
+	for_each(ity, num_types){
+		stringstream sstr;
+		sstr << tmp_prefixes[ity] << msg->me() << ".bin";
+		string outfile = sstr.str();
+		//const char* filename = sstr.str().c_str();
+		ofstream o(outfile.c_str(), ios::out | ios::binary);
+		// Loop over the temporary files created by the threads
+		ifstream i;
+		for_each(ithr, nthr){
 			stringstream sstr;
-			sstr << tmp_prefixes[ity] << msg->me() << ".bin";
-			string outfile = sstr.str();
-			//const char* filename = sstr.str().c_str();
-			ofstream o(outfile.c_str(), ios::out | ios::binary);
-			// Loop over the temporary files created by the threads
-			ifstream i;
-			for_each(ithr, nthr){
-				stringstream sstr;
-				sstr << tmp_prefixes[ity] << msg->me() << "_" << ithr << ".bin";
-				string infile = sstr.str();
-				if(opts.debug){
-					cout << "    Node " << me << " had file " << infile
-						 << " for " << descs[ity] << " of size "
-						 << file_size_string(infile) << endl;
-				}
-				i.open(infile.c_str(), ios::in | ios::binary);
-				copy_buffer(i, o);
-				i.close();
-				remove(infile.c_str());
+			sstr << tmp_prefixes[ity] << msg->me() << "_" << ithr << ".bin";
+			string infile = sstr.str();
+			if(opts.debug){
+				cout << "    Node " << me << " had file " << infile
+					 << " for " << descs[ity] << " of size "
+					 << file_size_string(infile) << endl;
 			}
-			o.close();
+			i.open(infile.c_str(), ios::in | ios::binary);
+			copy_buffer(i, o);
+			i.close();
+			remove(infile.c_str());
 		}
+		o.close();
 	}
 	timer.exit("node gather");
     //============================================================

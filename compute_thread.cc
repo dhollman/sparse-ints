@@ -126,13 +126,12 @@ FullTransComputeThread::run(){
 	const int nbf3tot = basis3_->nbasis();
 	const int nbf4tot = basis4_->nbasis();
 
-	int test_bf4[nbf4tot];
-	for_each(idx4, nbf4tot) test_bf4[idx4] = 0;
 	idx_t identifier[4];
 
 	// Compute stuff until there's no more work left
 	timer.enter("trans1q2q", threadnum_);
-	bool ignore_symmetry = false;
+	// NOTE: USING SYMMETRY DOESN'T WORK YET!!!
+	bool ignore_symmetry = true;
 	bool bs3_eq_bs4 = basis3_ == basis4_;
 	bool bs1_eq_bs2 = basis1_ == basis2_;
 	while(shellpairs.get_task(sh3, sh4)){
@@ -145,6 +144,8 @@ FullTransComputeThread::run(){
 			}
 			int nbf3 = basis3_->shell(sh3).nfunction();
 			int nbf4 = basis4_->shell(sh4).nfunction();
+			int sh3begin = basis3_->shell_to_function(sh3);
+			int sh4begin = basis4_->shell_to_function(sh4);
 			int nbfpairs = nbf3*nbf4;
 			const double* buffer = inteval_->buffer(otype_);
 
@@ -182,7 +183,7 @@ FullTransComputeThread::run(){
 						for_each(bf3,nbf3, bf4,nbf4){
 							int bfpair = bf3*nbf4 + bf4;
 							for_each(ibf1,nbf1tot){
-								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * buffer[bf1234]);
+								ints1q[bfpair].accumulate_element(ibf1, idx2, P1_.get_element(ibf1, idx1) * buffer[bf1234]); //((sh1begin+bf1)*30 + (sh2begin+bf2)*20 + (sh3begin+bf3)*10 + sh4begin+bf4)); //buffer[bf1234]);
 							}
 							if(bs1_eq_bs2 && sh1 != sh2 && !ignore_symmetry){
 								for_each(ibf1,nbf1tot){
@@ -228,7 +229,6 @@ FullTransComputeThread::run(){
 							int idx3 = sh3begin + innerbf3;
 							int pair1q = innerbf3*nbf4 + bf4;
 							tmp2qS.accumulate_element(bf2n, bf4, P3_.get_element(jbf3, idx3) * ints1q[pair1q].get_element(ibf1, bf2n));
-							test_bf4[idx3]++;
 						}
 						ints2qS.push_back(tmp2qS);
 						assert_equal(ints2qS.size()-1, bf1*outernbf3 + outerbf3);
@@ -288,6 +288,10 @@ FullTransComputeThread::run(){
 		int nbfpairs = nbf1*nbf3;
 		idx_t identifier[4];
 		value_t maxvals[nbfpairs];
+		// Write the identifier beforehand, since it applies to both the allints and maxabs schemes
+		identifier[0] = (idx_t)sh1;
+		identifier[2] = (idx_t)sh3;
+		o.write((char*)&identifier, 4*sizeof(idx_t));
 		for_each(bf1,nbf1, bf3,nbf3){
 			int ipair = bf1*nbf3 + bf3;
 			RefSCMatrix ints3q = kit_->matrix(bsdim2_, bsdim4_);
@@ -296,27 +300,24 @@ FullTransComputeThread::run(){
 			assert(ints24[ipair].nonnull());
 			ints3q = P2_ * ints24[ipair];
 			ints4q = ints3q * P4_;
-			if(opts.max_only){
+			if(opts.out_type == MaxAbs){
 				// TODO average, stddev, median, pair max etc (all at once, and write all files in one go)
 				maxvals[ipair] = ints4q->maxabs();
 				//maxvals[ipair] = mean<value_t>(ints24[ipair]);
 			}
-			else{
+			else if(opts.out_type == AllInts){
 				// write all ints
-				identifier[0] = sh1;
-				identifier[2] = sh3;
-				o.write((char*)&identifier, 4*sizeof(idx_t));
 				value_t vals[nbf2tot*nbf4tot];
 				for_each(idx2,nbf2tot, idx4,nbf4tot){
-					vals[idx2*nbf4tot + idx4] = (value_t)ints4q(idx2, idx4);
+					vals[idx2*nbf4tot + idx4] = (value_t)ints4q.get_element(idx2, idx4);
 				}
 				o.write((char*)&vals, nbf2tot*nbf4tot*sizeof(value_t));
 			}
+			else {
+				assert(not_implemented);
+			}
 		}
 		if(opts.max_only){
-			identifier[0] = sh1;
-			identifier[2] = sh3;
-			o.write((char*)&identifier, 4*sizeof(idx_t));
 			o.write((char*)&maxvals, nbfpairs*sizeof(value_t));
 		}
 	}
@@ -851,7 +852,6 @@ ReceiveThread::run()
 			int sh3 = assigned_pairs_[ipair].second;
 			assert_equal(pairs_recd[sh1*nsh3 + sh3], nsh4*nsh3)
 		}
-
 
 		my_ints2q_complete_ = true;
 

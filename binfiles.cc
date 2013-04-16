@@ -32,6 +32,7 @@ write_header_common(
 	o.write((char*)&value_size, sizeof(int8_t));
 }
 
+
 void
 write_basis(
 		ofstream& o,
@@ -78,41 +79,40 @@ write_basis(
 
 }
 
-// DEPRECATED
-/*
 void
-write_header(ofstream& o, const Ref<GaussianBasisSet>& basis, SparseIntOptions opts)
+write_density_binfile(
+		RefSymmSCMatrix P,
+		string filename,
+		Ref<GaussianBasisSet> basis
+)
 {
+	ofstream o(filename.c_str(), ios::out | ios::binary);
 	write_header_common(o);
-    int8_t max8 = (int8_t)opts.max_only;
-    o.write((char*)&max8, sizeof(int8_t));
+    int8_t ty8 = (int8_t)DensityMatrix;
+    o.write((char*)&ty8, sizeof(int8_t));
 
-    // Write a description of the basis
-    int natoms = basis->ncenter();
-    o.write((char*)&natoms, sizeof(int));
-    int nshell = basis->nshell();
-    o.write((char*)&nshell, sizeof(int));
-    // note that at this point, we are 64-bit aligned
+    // write a version number
+    // First indicate that we're not writing the number of atoms
+    int16_t new_file_marker = -1;
+    o.write((char*)&new_file_marker, sizeof(int16_t));
+    // Now write the version number
+    int16_t version_number = BINFILE_VERSION;
+    o.write((char*)&version_number, sizeof(int16_t));
 
-    // Write the info about each shell
-    for_each(ish, nshell){
-    	GaussianShell sh = basis->shell(ish);
-    	// Write the center number
-    	int tmp = basis->shell_to_center(ish);
-    	o.write((char*)&tmp, sizeof(int));
-    	// Write the number of functions
-    	tmp = sh.nfunction();
-    	o.write((char*)&tmp, sizeof(int));
-    	// Write the maximum and minimum angular momentum
-    	tmp = sh.max_am();
-    	o.write((char*)&tmp, sizeof(int));
-    	tmp = sh.min_am();
-    	o.write((char*)&tmp, sizeof(int));
-    	// TODO Write some sort of "average contraction exponent" here...
+    write_basis(o, basis);
+
+    int nrc = P.n();
+    value_t vals[nrc*(nrc+1)/2];
+    int ispot = 0;
+    for_each(row,nrc){
+		for_each(col,row+1){
+			vals[ispot++] = (value_t)P.get_element(row, col);
+		}
     }
+    assert(ispot == nrc*(nrc+1)/2);
+    o.write((char*)&vals, ispot*sizeof(value_t));
+    o.close();
 }
-*/
-
 
 void
 write_header(

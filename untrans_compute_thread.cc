@@ -106,10 +106,12 @@ UntransComputeThread::run()
 			// Not used if we're writing all of the integrals,
 			//   but it doesn't take up a lot of memory anyway
 			value_t* max_vals[num_types_];
-			for_each(ity, num_types_){
-				max_vals[ity] = new value_t[nbfpairs];
-				for_each(ipair, nbfpairs)
-					max_vals[ity][nbfpairs] = -1.0;
+			if(opts.out_type == MaxAbs){
+				for_each(ity, num_types_){
+					max_vals[ity] = new value_t[nbfpairs];
+					for_each(ipair, nbfpairs)
+						max_vals[ity][nbfpairs] = -1.0;
+				}
 			}
 
 			for(sh2 = 0; sh2 < nsh2; ++sh2){
@@ -134,14 +136,16 @@ UntransComputeThread::run()
 							value_t converted[nfunc];
 							int bf1234 = 0;
 							for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
-								converted[bf1234] = (value_t)buff[bf1234++];
+								value_t val = (value_t)buff[bf1234];
+								converted[bf1234] = val;
+								bf1234++;
 							}
 							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
 							o[ity].write((char*)&converted, nfunc*sizeof(value_t));
 							#else
 							// Otherwise just write the buffer as is
 							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
-							o[ity].write((char*)&buff, nfunc*sizeof(value_t));
+							o[ity].write((char*)buff, nfunc*sizeof(double));
 							#endif
 						}
 						else if(opts.out_type == MaxAbs){
@@ -156,7 +160,6 @@ UntransComputeThread::run()
 							}
 						}
 					} // end loop over types
-
 				} // end loop over index 4
 			} // end loop over index 2
 
@@ -164,10 +167,8 @@ UntransComputeThread::run()
 				for_each(ity, num_types_){
 					o[ity].write((char*)&identifier, 4*sizeof(idx_t));
 					o[ity].write((char*)&max_vals, nbfpairs*sizeof(value_t));
+					delete[] max_vals[ity];
 				}
-			}
-			for_each(ity, num_types_){
-				delete[] max_vals[ity];
 			}
 
 		} // End loop over permutations

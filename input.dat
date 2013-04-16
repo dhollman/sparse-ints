@@ -80,24 +80,30 @@ all: (
    corr_param = 1.0
    corr_type = "stg-6g"
    debug = no
-   do_eri = no
+   do_eri = yes
    do_f12 = yes
    do_f12g12 = no
+   do_O = yes
    max_only = no
    molname = $:molname
-   debug = yes
  )
 
 untrans: (
+    {do_ri} = {
+        yes
+        yes
+        yes
+        yes
+    }
 
 )
 
 halftrans: (
   {densmats} = { 
-      II
-      PP
-      QQ
-      PQ
+%      II
+%      PP
+%      QQ
+%      PQ
       OO
       RR
   }
@@ -105,7 +111,11 @@ halftrans: (
 
 %fulltrans: (
 %   {densmats} = { 
-%       PIII
+%        IIII
+%       PIPI
+%       PPII
+%       IPIP
+%       IPIQ
 %       IPII
 %       IIPI
 %       IIIP
