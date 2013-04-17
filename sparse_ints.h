@@ -15,7 +15,7 @@
 //   use thoroughly in the my_macros.h file.
 #include "my_macros.h"
 
-#define WRITE_AS_FLOAT 0
+#define WRITE_AS_FLOAT 1
 
 // typedefs
 #if WRITE_AS_FLOAT
@@ -91,50 +91,46 @@ typedef enum BinfileContent {
 } binfile_type;
 
 class MultiTimer {
-	std::vector<sc::Ref<sc::RegionTimer> > rtimers_;
+	sc::Ref<sc::RegionTimer>* rtimers_;
 	std::vector<sc::Timer> timers_;
-	sc::Ref<sc::ThreadGrp> thr_;
-	sc::Ref<sc::MessageGrp> msg_;
 	const char *name_;
+	int nthread;
 
 
 public:
 
 	MultiTimer(){ }
 
-	MultiTimer(const char *name, sc::Ref<sc::MessageGrp> msg, sc::Ref<sc::ThreadGrp> thr){
-		msg_ = msg;
-		thr_ = thr;
-		for_each(ithr, thr_->nthread()){
+	MultiTimer(const char *name){
+		sc::Ref<sc::MessageGrp> msg = sc::MessageGrp::get_default_messagegrp();
+		nthread = sc::ThreadGrp::get_default_threadgrp()->nthread();
+		rtimers_ = new sc::Ref<sc::RegionTimer>[nthread];
+		for_each(ithr, nthread){
 			name_ = name;
 			sc::Ref<sc::RegionTimer> tim = new sc::ParallelRegionTimer(msg, name, 1, 1);
-			rtimers_.push_back(tim);
+			rtimers_[ithr] = tim;
 			sc::Timer timerthr = sc::Timer(tim);
+			// NOTE: I NO LONGER OWN tim!!!
 			timers_.push_back(timerthr);
 		}
 	}
 
-	~MultiTimer() {}
+	~MultiTimer() {
+		// Don't delete rtimers_, they are owned by their respective Timer objects
+	}
 
-
-	//void enter(const char *region, int threadnum = 0){
-	//	timers_[threadnum].enter(region);
-	//}
 	void enter(const char *region, int threadnum = -1){
 		if(threadnum == -1){
-			for_each(ithr, thr_->nthread()){
+			for_each(ithr, nthread){
 				timers_[ithr].enter(region);
 			}
 		} else
 			timers_[threadnum].enter(region);
 	}
 
-	//void exit(const char *region, int threadnum = 0){
-	//	timers_[threadnum].exit(region);
-	//}
 	void exit(const char *region, int threadnum = -1){
 		if(threadnum == -1){
-			for_each(ithr, thr_->nthread()){
+			for_each(ithr, nthread){
 				timers_[ithr].exit(region);
 			}
 		} else
@@ -142,12 +138,13 @@ public:
 	}
 
 	void print(std::ostream& o = sc::ExEnv::out0()){
-		sc::Ref<sc::RegionTimer> main_timer = new sc::ParallelRegionTimer(msg_, name_, 1, 1);
-		for(int ithr = 0; ithr < thr_->nthread(); ithr++){
+		sc::Ref<sc::MessageGrp> msg = sc::MessageGrp::get_default_messagegrp();
+		sc::ParallelRegionTimer main_timer(msg, name_, 1, 1);
+		for(int ithr = 0; ithr < nthread; ithr++){
 			//rtimers_[ithr]->update_top();
-			main_timer->merge(rtimers_[ithr]);
+			main_timer.merge(rtimers_[ithr]);
 		}
-		rtimers_[0]->print(o);
+		main_timer.print(o);
 	}
 
 };
@@ -167,8 +164,6 @@ typedef struct {
 using namespace sc;
 
 // Global variables
-extern Ref<MessageGrp> msg;
-extern Ref<ThreadGrp> thr;
 extern MultiTimer timer;
 extern SparseIntOptions opts;
 extern Ref<ThreadLock> print_lock;

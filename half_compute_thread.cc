@@ -27,6 +27,8 @@ using namespace std;
 // HalfTransCommThread class
 
 HalfTransComputeThread::HalfTransComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const Ref<TwoBodyIntDescr>& intdescr,
 		const Ref<ThreadLock>& lock,
@@ -40,7 +42,7 @@ HalfTransComputeThread::HalfTransComputeThread(
 		DensityMap& dens_pairs,
 		Ref<LocalSCMatrixKit>& kit,
 		int* quartets_processed
-) : ComputeThread(num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
+) : ComputeThread(msg, thr, num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
 {
 	quartets_processed_ = quartets_processed;
 	(*quartets_processed_) = 0;

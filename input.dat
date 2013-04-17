@@ -1,4 +1,4 @@
-molecule = $:h2
+molecule = $:ne4
 molname = $molecule:name
 
 ne10<Molecule>: (
@@ -28,6 +28,18 @@ ne3<Molecule>: (
      Ne  [ 0.0 0.0  5.0 ]
   }
   name="Ne3"
+)
+
+ne4<Molecule>: (
+  symmetry=auto
+  units=angstrom
+  { atoms    geometry } = {
+     Ne  [ 0.0 0.0  0.0 ]
+     Ne  [ 0.0 0.0  5.0 ]
+     Ne  [ 0.0 0.0 10.0 ]
+     Ne  [ 0.0 0.0 15.0 ]
+  }
+  name="Ne4wide"
 )
 
 h2<Molecule>: (
@@ -83,8 +95,10 @@ all: (
    do_eri = yes
    do_f12 = no
    do_f12g12 = no
+   do_P = yes
+   do_Q = yes
    do_O = yes
-   max_only = no
+   max_only = yes
    molname = $:molname
  )
 
@@ -106,7 +120,7 @@ untrans: (
 
 halftrans: (
   {densmats} = { 
-%      II
+%%      II
 %      PP
 %      QQ
 %      PQ
@@ -115,19 +129,20 @@ halftrans: (
   }
 )
 
-fulltrans: (
-   {densmats} = { 
-%        IIII
-%       PIPI
-%       PPII
-%       IPIP
-%       PPPP
-%       PQPQ
-%       IPII
-%       IIPI
-%       IIIP
-       RORO
-%       OOOO
-       RRRR
-   }
-)
+%fulltrans: (
+%   {densmats} = { 
+%%%        IIII
+%%       PIPI
+%%%       PPII
+%%%       IPIP
+%%%       PPPP
+%%       PQPQ
+%%       IPII
+%%%       IIPI
+%%%       IIIP
+%%%       RORO
+%%%       OOOO
+%%%       RRRR
+%      PQOI
+%   }
+%)

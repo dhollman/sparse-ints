@@ -74,7 +74,7 @@ tmpdir = mkdtemp(dir=os.getenv("SCRATCH", default='/tmp'))
 int_mats = ['F', 'g', 'Fg', 'Fsq', 'DC']
 dens_mats = ['P', 'Q', 'O', 'I', 'R', '0']
 #max_mm_size = float("inf")
-max_mm_size = 35 * 1024 * 1024
+max_mm_size = 10 * 1024 * 1024
 #max_mm_size = 3000
 
 

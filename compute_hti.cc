@@ -16,6 +16,8 @@ using namespace std;
 
 void
 sparse_ints::compute_hti_threaded(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
         const Ref<TwoBodyIntDescr>& intdescr,
         TwoBodyOper::type* otypes, string* descs, int num_types,
         string prefix, string tmpdir,
@@ -57,7 +59,7 @@ sparse_ints::compute_hti_threaded(
     }
     for_each(ithr,nthr){
     	timer.enter("create compute threads");
-        HalfTransComputeThread* thread = new HalfTransComputeThread(
+        HalfTransComputeThread* thread = new HalfTransComputeThread(msg, thr,
         		ithr, intdescr, lock,
         		bs13, bs24, bs13, bs24,
         		otypes, tmp_prefixes, num_types,

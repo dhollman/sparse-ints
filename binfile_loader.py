@@ -9,9 +9,17 @@ import numpy as np
 from math import log10
 
 
-def tensor_from_binfile(filename, force_reload=False):
-    int_file = LoadedIntFile(filename, force_reload=force_reload)
+def tensor_from_binfile(filename, force_reload=False, verbose=False):
+    int_file = LoadedIntFile(filename, force_reload=force_reload, verbose=verbose)
     return int_file.loaded_array.array
+
+def tensor_and_basis_sets_from_binfile(filename, force_reload=False, verbose=False):
+    int_file = LoadedIntFile(filename, force_reload=force_reload, verbose=verbose)
+    return int_file.loaded_array.array, int_file.loaded_array.basis_sets
+
+def bsarray_from_binfile(filename, force_reload=False, verbose=False):
+    int_file = LoadedIntFile(filename, force_reload=force_reload, verbose=verbose)
+    return int_file.loaded_array
 
 def tensor_and_mags_from_binfile(filename, min_value_or_mag_function, max_value=None, force_reload=False, force_reload_mags=False):
     int_file = LoadedIntFile(filename, force_reload=force_reload)
@@ -26,10 +34,10 @@ def is_newer(filea, fileb):
 def make_matrix(shape, mm_filename, bin_filename=None, force_reload=False):
     shape = tuple(shape)
     if not force_reload and (exists(mm_filename) and (bin_filename is None or is_newer(mm_filename, bin_filename))):
-        rv = np.memmap(mm_filename, mode="r", shape=shape, dtype='float64')
+        rv = np.memmap(mm_filename, mode="r", shape=shape, dtype='float32')
         return rv, True
     else:
-        rv = np.memmap(mm_filename, mode="w+", shape=shape, dtype='float64')
+        rv = np.memmap(mm_filename, mode="w+", shape=shape, dtype='float32')
         return rv, False
 
 def make_mag_matrix(shape, mags_filename, mm_filename=None, force_new = False):
@@ -50,16 +58,21 @@ class ProgressBar(object):
     def __init__(self, max_val, width=80, out=sys.stdout, fill_char='=', indent='', arrow = True):
         self.max_val = max_val
         self.current_percent = 0
+        self.current_value = 0
         self.width = width
         self.out = out
         self.fill_char = fill_char
         self.indent = indent
         self.arrow = arrow
-    def update(self, new_val):
-        new_percent = int(float(new_val/self.max_val)*100)
+
+    def update(self, new_val=None):
+        if new_val is not None:
+            self.current_value = new_val
+        new_percent = int(float(self.current_value/self.max_val)*100)
         if new_percent != self.current_percent:
             self.current_percent = new_percent
             self.print_bar()
+
     def print_bar(self):
         bar_width = self.width - 7
         filled = int(round(float(self.current_percent)/100.0 * bar_width))
@@ -69,6 +82,10 @@ class ProgressBar(object):
         space = " " * (bar_width - filled)
         self.out.write("\r{3}[{0}{1}] {2:>3d}%".format(filler, space, self.current_percent, self.indent))
         self.out.flush()
+
+    def __iadd__(self, other):
+        self.current_value += other
+        self.update()
 
 #--------------------------------------------------------------------------------#
 
@@ -106,6 +123,10 @@ class BasisSet(object):
     @property
     def ncenter(self):
         return len(self.center_to_function)
+
+    def __iter__(self):
+        for sh in self.shells:
+            yield sh
 
     def __eq__(self, other):
         return self.shells == other.shells
@@ -280,7 +301,7 @@ class LoadedIntFile(object):
                     if min_val is not None and abs(val) < pow(10.0, -min_val):
                         return 0
                     elif max_val is not None and abs(val) > pow(10.0, -max_val):
-                        return -min_val-max_val
+                        return min_val-max_val
                     return log10(abs(val)) + min_val
             mag_vect = np.vectorize(mag)
             print "    Loading magnitudes."
@@ -351,7 +372,7 @@ class LoadedIntFile(object):
                 # Density matrix format
                 self._load_dens_basis(f)
                 self._load_dens(f)
-            if self.verbose: print "\n    Done loading bin file into memeory mapped structure."
+            if self.verbose: print "    Done loading bin file into memeory mapped structure."
 
     def _load_dens_basis(self, f):
         int_ = self.int_
@@ -382,6 +403,8 @@ class LoadedIntFile(object):
                     self.loaded_matrix.array[row, col] = val
                     self.loaded_matrix.array[col, row] = val
                     if self.verbose: pbar.update(f.tell()-metadata_size)
+            # New line at the end of the progress bar
+            print
         else:
             print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
@@ -445,6 +468,8 @@ class LoadedIntFile(object):
                     os.unlink(self.memmap_filename)
                     # then reraise the exception
                     raise
+            # New line at the end of the progress bar
+            print
         else:
             print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
@@ -480,6 +505,8 @@ class LoadedIntFile(object):
                     os.unlink(self.memmap_filename)
                     # then reraise the exception
                     raise
+            # New line at the end of the progress bar
+            print
         else:
             print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
@@ -524,6 +551,8 @@ class LoadedIntFile(object):
                     os.unlink(self.memmap_filename)
                     # then reraise the exception
                     raise
+            # New line at the end of the progress bar
+            print
             if not np.all(loaded_quartets.ravel()):
                 print "  Warning: not all quartets were found."
                 numnl = 0

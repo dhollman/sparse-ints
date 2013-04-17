@@ -41,6 +41,9 @@ class SparseIntsThread : public sc::Thread {
 
 protected:
 
+	sc::Ref<MessageGrp> msg;
+	sc::Ref<ThreadGrp> thr;
+
     int threadnum_;
     const sc::Ref<sc::GaussianBasisSet> basis1_;
     const sc::Ref<sc::GaussianBasisSet> basis2_;
@@ -50,6 +53,8 @@ protected:
     std::ofstream dbg_out_;
 
 	SparseIntsThread(
+		sc::Ref<MessageGrp> msg,
+		sc::Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
@@ -62,7 +67,9 @@ protected:
 		basis2_(bs2),
 		basis3_(bs3),
 		basis4_(bs4),
-		kit_(kit)
+		kit_(kit),
+		msg(msg),
+		thr(thr)
     {
 		if(opts.debug) {
 			std::stringstream sstr;
@@ -75,6 +82,8 @@ protected:
 	~SparseIntsThread(){
 		if(opts.debug)
 			dbg_out_.close();
+		msg = 0;
+		thr = 0;
 	}
 
 };
@@ -89,6 +98,8 @@ protected:
 public:
 
 	ComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -114,6 +125,8 @@ public:
 
 
     UntransComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -149,6 +162,8 @@ public:
 
 
     HalfTransComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -191,6 +206,8 @@ class FullTransComputeThread : public ComputeThread {
 public:
 
     FullTransComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -227,6 +244,8 @@ protected:
 	int* bf_per_node_;
 
 	FullTransCommThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
@@ -282,6 +301,8 @@ class SendThread : public FullTransCommThread {
 
 public:
 	SendThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
@@ -345,6 +366,8 @@ public:
 	std::map<IntPair, std::vector<RefSCMatrix> > my_ints2q;
 
 	ReceiveThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,

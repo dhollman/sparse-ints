@@ -111,7 +111,7 @@ write_density_binfile(
 		}
     }
     assert(ispot == nrc*(nrc+1)/2);
-    o.write((char*)&vals, ispot*sizeof(value_t));
+    o.write((char*)vals, ispot*sizeof(value_t));
     o.close();
 }
 

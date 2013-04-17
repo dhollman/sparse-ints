@@ -15,6 +15,8 @@ namespace sparse_ints{
 
 void
 compute_hti_threaded(
+		sc::Ref<sc::MessageGrp> msg,
+		sc::Ref<sc::ThreadGrp> thr,
         const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
         sc::TwoBodyOper::type* otypes, std::string* descs, int num_types,
         std::string prefix, std::string tmpdir,

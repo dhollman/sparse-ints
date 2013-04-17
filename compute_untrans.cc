@@ -16,6 +16,8 @@ using namespace std;
 
 void
 sparse_ints::compute_untrans_threaded(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
         const Ref<TwoBodyIntDescr>& intdescr,
         TwoBodyOper::type* otypes, string* descs, int num_types,
         string prefix, string tmpdir,
@@ -54,7 +56,7 @@ sparse_ints::compute_untrans_threaded(
 	}
     for_each(ithr,nthr){
     	timer.enter("create compute threads");
-        UntransComputeThread* thread = new UntransComputeThread(
+        UntransComputeThread* thread = new UntransComputeThread(msg, thr,
         		ithr, intdescr, lock,
         		bs1, bs2, bs3, bs4,
         		otypes, tmp_prefixes, num_types,

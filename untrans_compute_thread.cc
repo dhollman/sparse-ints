@@ -24,9 +24,11 @@ using namespace std;
 
 
 /////////////////////////////////////////////////////////////////////////////
-// HalfTransCommThread class
+// UntransCommThread class
 
 UntransComputeThread::UntransComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const Ref<TwoBodyIntDescr>& intdescr,
 		const Ref<ThreadLock>& lock,
@@ -39,7 +41,7 @@ UntransComputeThread::UntransComputeThread(
 		int num_types,
 		Ref<LocalSCMatrixKit>& kit,
 		int* quartets_processed
-) : ComputeThread(num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
+) : ComputeThread(msg, thr, num, intdescr, lock, bs1, bs2, bs3, bs4, kit)
 {
 	quartets_processed_ = quartets_processed;
 	(*quartets_processed_) = 0;
@@ -113,7 +115,7 @@ UntransComputeThread::run()
 			value_t* max_vals[num_types_];
 			if(opts.out_type == MaxAbs){
 				for_each(ity, num_types_){
-					max_vals[ity] = new value_t[nbfpairs];
+					max_vals[ity] = allocate<value_t>(nbfpairs);
 					for_each(ipair, nbfpairs)
 						max_vals[ity][nbfpairs] = -1.0;
 				}
@@ -148,11 +150,12 @@ UntransComputeThread::run()
 								converted[bf1234] = val;
 								bf1234++;
 							}
-							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
-							o[ity].write((char*)&converted, nfunc*sizeof(value_t));
+							assert(bf1234==nfunc);
+							o[ity].write((char*)identifier, 4*sizeof(idx_t));
+							o[ity].write((char*)converted, nfunc*sizeof(value_t));
 							#else
 							// Otherwise just write the buffer as is
-							o[ity].write((char*)&identifier, 4*sizeof(idx_t));
+							o[ity].write((char*)identifier, 4*sizeof(idx_t));
 							if(opts.use_fake_ints){
 								int bf1234 = 0;
 								value_t converted[nfunc];
@@ -184,9 +187,10 @@ UntransComputeThread::run()
 
 			if(opts.out_type == MaxAbs){
 				for_each(ity, num_types_){
-					o[ity].write((char*)&identifier, 4*sizeof(idx_t));
-					o[ity].write((char*)&max_vals, nbfpairs*sizeof(value_t));
-					delete[] max_vals[ity];
+					o[ity].write((char*)identifier, 4*sizeof(idx_t));
+					o[ity].write((char*)max_vals, nbfpairs*sizeof(value_t));
+					deallocate(max_vals[ity]);
+					//max_vals[ity] = 0;
 				}
 			}
 

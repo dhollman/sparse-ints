@@ -21,6 +21,8 @@ enum { DoneCollecting = 10 };
 
 void
 sparse_ints::compute_full_trans_ints(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
         const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
         sc::TwoBodyOper::type otype,
         std::string prefix, std::string matname, std::string tmpdir,
@@ -70,16 +72,16 @@ sparse_ints::compute_full_trans_ints(
 
     // Create the send and receive thread objects
     DBG("Creating send thread");
-    SendThread* send_thread = new SendThread(bs1, bs2, bs3, bs4, kit);
+    SendThread* send_thread = new SendThread(msg, thr, bs1, bs2, bs3, bs4, kit);
     thr->add_thread(nthr-2, send_thread);
     DBG("Creating receive thread");
-    ReceiveThread* recv_thread = new ReceiveThread(bs1, bs2, bs3, bs4, kit);
+    ReceiveThread* recv_thread = new ReceiveThread(msg, thr, bs1, bs2, bs3, bs4, kit);
     thr->add_thread(nthr-1, recv_thread);
 
     // Create the comptue threads
     for_each(ithr, nthr-2){
     	DBG("Creating compute thread " << ithr);
-    	FullTransComputeThread* comp_thread = new FullTransComputeThread(
+    	FullTransComputeThread* comp_thread = new FullTransComputeThread(msg, thr,
     			ithr, intdescr, compute_lock,
     			bs1, bs2, bs3, bs4,
     			otype, tmp_prefix, P1, P2, P3, P4, kit,
@@ -229,6 +231,9 @@ sparse_ints::compute_full_trans_ints(
 	/*=========================================================*/
 	/* Cleanup             		                          {{{1 */ #if fold_begin
     thr->delete_threads();
+    for_each(iproc, msg->n()){
+    	delete[] quartets_processed[iproc];
+    }
 	/***********************************************************/ #endif //1}}}
 	/*=========================================================*/
 }

@@ -16,6 +16,8 @@ namespace sparse_ints{
 
 void
 compute_full_trans_ints(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
         const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
         sc::TwoBodyOper::type otype,
         std::string prefix, std::string matname, std::string tmpdir,

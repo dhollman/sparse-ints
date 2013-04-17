@@ -33,15 +33,12 @@
 #include "compute_untrans.h"
 #include "binfiles.h"
 
-#define fold_begin 1
 
 using namespace sparse_ints;
 using namespace sc;
 using namespace std;
 
 // Global variables
-Ref<MessageGrp> sparse_ints::msg;
-Ref<ThreadGrp> sparse_ints::thr;
 MultiTimer sparse_ints::timer;
 SparseIntOptions sparse_ints::opts;
 Ref<ThreadLock> sparse_ints::print_lock;
@@ -52,17 +49,6 @@ main(int argc, char** argv) {
 
     /*=========================================================*/
     /* Create msg, thr, and timer                              */ #if fold_begin
-
-    //---------------------------------------------------------//
-    // Create the thread group object
-
-    sparse_ints::thr = ThreadGrp::initial_threadgrp(argc, argv);
-    if (thr.null()) {
-    	thr = ThreadGrp::get_default_threadgrp();
-    }
-    ThreadGrp::set_default_threadgrp(thr);
-    int nthr = thr->nthread();
-    print_lock = thr->new_lock();
 
     //---------------------------------------------------------//
     // Create the message group
@@ -76,9 +62,20 @@ main(int argc, char** argv) {
 		#endif
     }
     MessageGrp::set_default_messagegrp(msg);
-    sparse_ints::msg = msg;
     int n = msg->n();
     int me = msg->me();
+
+    //---------------------------------------------------------//
+    // Create the thread group object
+
+    Ref<ThreadGrp> thr = ThreadGrp::initial_threadgrp(argc, argv);
+    if (thr.null()) {
+    	thr = ThreadGrp::get_default_threadgrp();
+    }
+    ThreadGrp::set_default_threadgrp(thr);
+    int nthr = thr->nthread();
+    print_lock = thr->new_lock();
+
 
     if (!opts.quiet && me == MASTER) {
         cout << "Running on " << n << " node"
@@ -89,7 +86,7 @@ main(int argc, char** argv) {
     //---------------------------------------------------------//
     // Create the timer
     
-    MultiTimer timer("Sparse Ints", msg, thr);
+    MultiTimer timer("Sparse Ints");
     sparse_ints::timer = timer;
 
     /***********************************************************/ #endif
@@ -201,14 +198,17 @@ main(int argc, char** argv) {
     /*******************************************************/ #endif //2}}}
     /*-----------------------------------------------------*/
 
+    delete[] infile;
 
     /***********************************************************/ #endif
     /*=========================================================*/
     /* Make the scratch directory							   */ #if fold_begin
 
     char* scratch_dir = getenv("SCRATCH");
+    bool alloc_scratch_dir = false, alloc_job_id = false;
     if(scratch_dir == 0){
     	scratch_dir = new char[32];
+        alloc_scratch_dir = true;
         sprintf(scratch_dir, "/tmp");
     }
     char* job_id = getenv("PBS_JOBID");
@@ -222,11 +222,15 @@ main(int argc, char** argv) {
     	// broadcast the process id
     	msg->bcast(pid, 0);
     	job_id = new char[32];
+        alloc_job_id = true;
     	sprintf(job_id, "%d", pid);
     }
 	// Get the temporary directory as a string
     char* ctmpdir = new char[256];
     sprintf(ctmpdir, "%s/%s", scratch_dir, job_id);
+    // Pedantically avoid leaking memory
+    if(alloc_scratch_dir) delete[] scratch_dir;
+    if(alloc_job_id) delete[] job_id;
     string tmpdir(const_cast<const char*>(ctmpdir));
     if(!opts.quiet){
     	if((!opts.debug && me == MASTER) || opts.debug){
@@ -235,6 +239,7 @@ main(int argc, char** argv) {
     		else cout << "Using static load balancing" << endl;
     	}
     }
+    delete[] ctmpdir;
 
     // Create the temporary directory
     if(me == MASTER){
@@ -320,6 +325,7 @@ main(int argc, char** argv) {
 			keyval->describedclassvalue("world").pointer(), "main\n");
 	Ref<RefWavefunction> refwfn = new SD_RefWavefunction(world, hf);
 	Ref<R12WavefunctionWorld> r12world = new R12WavefunctionWorld(keyval, refwfn);
+	r12world->initialize();
 	Ref<R12Technology> r12tech = r12world->r12tech();
 	Ref<OrbitalSpace> ribs_space = r12world->ribs_space();
 	Ref<GaussianBasisSet> ribs = ribs_space->basis();
@@ -431,7 +437,8 @@ main(int argc, char** argv) {
     	// Get O
     	RefSCMatrix Ccabs = cabs_space->coefs();
 		RefSymmSCMatrix Otmp = Ccabs->kit()->symmmatrix(Ccabs->rowdim());
-    	Otmp.accumulate_symmetric_product(Ccabs);
+		Otmp.assign(0.0);
+		Otmp.accumulate_symmetric_product(Ccabs);
     	assert(Otmp.nblock() == 1);
     	O = kit->symmmatrix(ribs->basisdim());
     	O.assign(require_dynamic_cast<ReplSymmSCMatrix*>(Otmp.block(0), "main\n")->get_data());
@@ -509,7 +516,7 @@ main(int argc, char** argv) {
 			}
 			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
 
-			compute_untrans_threaded(
+			compute_untrans_threaded(msg, thr,
 					descr,
 					otypes, descs, num_types,
 					untrans_prefix, tmpdir,
@@ -537,7 +544,7 @@ main(int argc, char** argv) {
 			}
 			Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0, 0);
 
-			compute_untrans_threaded(
+			compute_untrans_threaded(msg, thr,
 					descr,
 					otypes, descs, num_types,
 					untrans_prefix, tmpdir,
@@ -642,7 +649,7 @@ main(int argc, char** argv) {
 			if(do_oo){
 				integral->set_basis(obs, obs, obs, obs);
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_hti_threaded(
+				compute_hti_threaded(msg, thr,
 						descr,
 						otypes, descs, num_types,
 						prefix, tmpdir,
@@ -654,7 +661,7 @@ main(int argc, char** argv) {
 			if(do_rr){
 				integral->set_basis(ribs, ribs, ribs, ribs);
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_hti_threaded(
+				compute_hti_threaded(msg, thr,
 						descr,
 						otypes, descs, num_types,
 						prefix, tmpdir,
@@ -666,7 +673,7 @@ main(int argc, char** argv) {
 			if(do_or){
 				assert(not_implemented);
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_hti_threaded(
+				compute_hti_threaded(msg, thr,
 						descr,
 						otypes, descs, num_types,
 						prefix, tmpdir,
@@ -742,7 +749,7 @@ main(int argc, char** argv) {
 				TwoBodyOper::type otype = cf->tbint_type_eri();
 				// Compute and tranform the integrals
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_full_trans_ints(
+				compute_full_trans_ints(msg, thr,
 						descr, otype,
 						prefix, densmats_full[iset] + "g", tmpdir,
 						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
@@ -756,7 +763,7 @@ main(int argc, char** argv) {
 				TwoBodyOper::type otype = cf->tbint_type_f12();
 				// Compute and tranform the integrals
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_full_trans_ints(
+				compute_full_trans_ints(msg, thr,
 						descr, otype,
 						prefix, densmats_full[iset] + "F", tmpdir,
 						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
@@ -770,7 +777,7 @@ main(int argc, char** argv) {
 				TwoBodyOper::type otype = cf->tbint_type_f12eri();
 				// Compute and tranform the integrals
 				Ref<TwoBodyIntDescr> descr = cf->tbintdescr(integral, 0);
-				compute_full_trans_ints(
+				compute_full_trans_ints(msg, thr,
 						descr, otype,
 						prefix, densmats_full[iset] + "Fg", tmpdir,
 						basis_sets[0], basis_sets[1], basis_sets[2], basis_sets[3],
@@ -798,10 +805,8 @@ main(int argc, char** argv) {
     	}
     }
 
-    //delete msg;
-    //delete thr;
-
     return 0;
+
     /***********************************************************/ #endif
     /*=========================================================*/
 

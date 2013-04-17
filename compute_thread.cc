@@ -40,6 +40,8 @@ size_t SendThread::max_queue_size = size_t(2e8);
 // ComputeThread class
 
 ComputeThread::ComputeThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -48,7 +50,7 @@ ComputeThread::ComputeThread(
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
 		sc::Ref<sc::LocalSCMatrixKit>& kit
-) : SparseIntsThread(num, bs1, bs2, bs3, bs4, kit)
+) : SparseIntsThread(msg, thr, num, bs1, bs2, bs3, bs4, kit)
 {
 	lock_ = lock;
 
@@ -64,6 +66,8 @@ ComputeThread::ComputeThread(
 
 FullTransComputeThread::FullTransComputeThread(
 		// Superclass arguments
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const sc::Ref<sc::TwoBodyIntDescr>& intdescr,
 		const sc::Ref<sc::ThreadLock>& lock,
@@ -82,7 +86,7 @@ FullTransComputeThread::FullTransComputeThread(
 		SendThread* send_thread,
 		ReceiveThread* recv_thread,
 		int* quartets_computed
-) : ComputeThread(num, intdescr, lock, bs1, bs2, bs3, bs4, kit),
+) : ComputeThread(msg, thr, num, intdescr, lock, bs1, bs2, bs3, bs4, kit),
 		P1_(P1),
 		P2_(P2),
 		P3_(P3),
@@ -338,13 +342,15 @@ FullTransComputeThread::run(){
 // FullTransCommThread class
 
 FullTransCommThread::FullTransCommThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		int num,
 		const Ref<GaussianBasisSet>& bs1,
 		const Ref<GaussianBasisSet>& bs2,
 		const Ref<GaussianBasisSet>& bs3,
 		const Ref<GaussianBasisSet>& bs4,
 		Ref<LocalSCMatrixKit>& kit
-) : SparseIntsThread(num, bs1, bs2, bs3, bs4, kit)
+) : SparseIntsThread(msg, thr, num, bs1, bs2, bs3, bs4, kit)
 {
 
 	bf_per_node_ = new int[msg->n()-1];
@@ -435,12 +441,14 @@ FullTransCommThread::master_run()
 // SendThread class
 
 SendThread::SendThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
 		Ref<LocalSCMatrixKit>& kit
-) : FullTransCommThread(thr->nthread()-2, bs1, bs2, bs3, bs4, kit),
+) : FullTransCommThread(msg, thr, thr->nthread()-2, bs1, bs2, bs3, bs4, kit),
 		task_queue_(),
 		needs_send_message_(-1)
 {
@@ -699,12 +707,14 @@ SendThread::distribute_shell_pair(
 // ReceiveThread class
 
 ReceiveThread::ReceiveThread(
+		Ref<MessageGrp> msg,
+		Ref<ThreadGrp> thr,
 		const sc::Ref<sc::GaussianBasisSet>& bs1,
 		const sc::Ref<sc::GaussianBasisSet>& bs2,
 		const sc::Ref<sc::GaussianBasisSet>& bs3,
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
 		Ref<LocalSCMatrixKit>& kit
-) : FullTransCommThread(thr->nthread()-1, bs1, bs2, bs3, bs4, kit),
+) : FullTransCommThread(msg, thr, thr->nthread()-1, bs1, bs2, bs3, bs4, kit),
 		assigned_pairs_(),
 		nbf_pairs_()
 {
