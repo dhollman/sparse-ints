@@ -13,72 +13,72 @@
 
 using namespace std;
 
-template <class T=value_t>
-inline T
-max_abs(sc::RefSCMatrix& mat){
-	int nrows = mat->nrow();
-	int ncols = mat->ncol();
-	T maxval = 0.0;
-	for_each(row,nrows, col,ncols){
-		T tmpval = (T)fabs(mat->get_element(row, col));
-		if(tmpval > maxval){
-			maxval = tmpval;
-		}
-	}
-	return maxval;
-}
-
-template <class T=value_t>
-inline T
-mean(sc::RefSCMatrix& mat){
-	int nrows = mat->nrow();
-	int ncols = mat->ncol();
-	T total = 0.0;
-	for_each(row,nrows, col,ncols){
-		T tmpval = (T)fabs(mat->get_element(row, col));
-		total += tmpval;
-	}
-	return total/((T)(nrows*ncols));
-}
-
-inline int compare(const void * a, const void * b)
-{
-  return ( *(int*)a - *(int*)b );
-}
-
-
-template <class T=value_t>
-inline T
-median(sc::RefSCMatrix& mat){
-	int nrows = mat->nrow();
-	int ncols = mat->ncol();
-	double *data = new double[nrows*ncols];
-	for_each(idata, nrows*ncols){
-		data[idata] = fabs(data[idata]);
-	}
-	mat->convert(data);
-	qsort(data, nrows*ncols, sizeof(double), compare);
-	T rv = (T)data[nrows*ncols/2];
-	delete[] data;
-	return rv;
-}
-
-template <class T=value_t, class index_type=idx_t>
-T
-max_abs(sc::RefSCMatrix& mat, index_type &maxrow, index_type &maxcol){
-	int nrows = mat->nrow();
-	int ncols = mat->ncol();
-	T maxval = 0.0;
-	for_each(row,nrows, col,ncols){
-		T tmpval = (T)fabs(mat->get_element(row, col));
-		if(tmpval > maxval){
-			maxrow = (index_type)row;
-			maxcol = (index_type)col;
-			maxval = tmpval;
-		}
-	}
-	return maxval;
-}
+//template <class T=value_t>
+//inline T
+//max_abs(sc::RefSCMatrix& mat){
+//	int nrows = mat->nrow();
+//	int ncols = mat->ncol();
+//	T maxval = 0.0;
+//	for_each(row,nrows, col,ncols){
+//		T tmpval = (T)fabs(mat->get_element(row, col));
+//		if(tmpval > maxval){
+//			maxval = tmpval;
+//		}
+//	}
+//	return maxval;
+//}
+//
+//template <class T=value_t>
+//inline T
+//mean(sc::RefSCMatrix& mat){
+//	int nrows = mat->nrow();
+//	int ncols = mat->ncol();
+//	T total = 0.0;
+//	for_each(row,nrows, col,ncols){
+//		T tmpval = (T)fabs(mat->get_element(row, col));
+//		total += tmpval;
+//	}
+//	return total/((T)(nrows*ncols));
+//}
+//
+//inline int compare(const void * a, const void * b)
+//{
+//  return ( *(int*)a - *(int*)b );
+//}
+//
+//
+//template <class T=value_t>
+//inline T
+//median(sc::RefSCMatrix& mat){
+//	int nrows = mat->nrow();
+//	int ncols = mat->ncol();
+//	double *data = new double[nrows*ncols];
+//	for_each(idata, nrows*ncols){
+//		data[idata] = fabs(data[idata]);
+//	}
+//	mat->convert(data);
+//	qsort(data, nrows*ncols, sizeof(double), compare);
+//	T rv = (T)data[nrows*ncols/2];
+//	delete[] data;
+//	return rv;
+//}
+//
+//template <class T=value_t, class index_type=idx_t>
+//T
+//max_abs(sc::RefSCMatrix& mat, index_type &maxrow, index_type &maxcol){
+//	int nrows = mat->nrow();
+//	int ncols = mat->ncol();
+//	T maxval = 0.0;
+//	for_each(row,nrows, col,ncols){
+//		T tmpval = (T)fabs(mat->get_element(row, col));
+//		if(tmpval > maxval){
+//			maxrow = (index_type)row;
+//			maxcol = (index_type)col;
+//			maxval = tmpval;
+//		}
+//	}
+//	return maxval;
+//}
 
 inline off_t
 file_size(string file){

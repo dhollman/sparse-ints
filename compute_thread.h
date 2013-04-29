@@ -15,6 +15,16 @@
 #ifndef COMPUTE_THREAD_H_
 #define COMPUTE_THREAD_H_
 
+// macros
+#define DBG_MSG(mymsg) \
+	if(opts.debug){ \
+		print_lock->lock(); \
+		dbg_out_ << mymsg << std::endl; \
+		dbg_out_.flush(); \
+		/*std::cout << msg->me() << "." << threadnum_ << ":" << mymsg << std::endl;*/ \
+		/*std::cout.flush();*/ \
+		print_lock->unlock(); \
+	}
 
 namespace sparse_ints{
 
@@ -75,6 +85,7 @@ protected:
 			std::stringstream sstr;
 			sstr << "_debug." << msg->me() << "." << threadnum_ << ".dat";
 			dbg_out_.open(sstr.str().c_str(), std::ios::out);
+			DBG_MSG("Debugging enabled.");
 		}
 
     }

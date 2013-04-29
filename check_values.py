@@ -28,6 +28,9 @@ geoms = {
         H   1.5  0.0  -0.3
         H  -1.5  0.0  -0.3
         O   0.0  0.0   1.0
+    """,
+    "NeAtom" : """
+        Ne  0.0  0.0  0.0
     """
 }
 
@@ -45,24 +48,27 @@ def psi_basis_name(mpqc_basis_name):
 
 if len(sys.argv) == 2:
     filename = sys.argv[1]
-    if not exists(filename):
-        raise IOError("File not found: {}".format(filename))
-    directory = os.path.join(filename.split("/")[:-1])
-    baseext = filename.split("/")[-1]
-    ext = baseext.split(".")[-1]
-    base = ".".join(baseext.split(".")[:-1])
-    nameparts = base.split("_")
-    matname = nameparts[-1]
-    molname = nameparts[0]
-    basis_name = psi_basis_name(nameparts[1])
-    aux_basis_name = psi_basis_name(nameparts[2])
-    modifiers = nameparts[3:-1]
-    if "bsrrrr" in modifiers:
-        raise NotImplementedError()
-    if matname not in ["P", "Q", "O"] and "allints" not in modifiers:
-        raise NotImplementedError()
+elif __name__ != "__main__":
+    filename = "matrices/h2_cc-pVDZ_cc-pVDZ-F12-CABS_O.bin"
 else:
     raise ValueError("Expecting exactly one filename as argument.")
+
+if not exists(filename):
+    raise IOError("File not found: {}".format(filename))
+directory = os.path.join(filename.split("/")[:-1])
+baseext = filename.split("/")[-1]
+ext = baseext.split(".")[-1]
+base = ".".join(baseext.split(".")[:-1])
+nameparts = base.split("_")
+matname = nameparts[-1]
+molname = nameparts[0]
+basis_name = psi_basis_name(nameparts[1])
+aux_basis_name = psi_basis_name(nameparts[2])
+modifiers = nameparts[3:-1]
+if "bsrrrr" in modifiers:
+    raise NotImplementedError()
+if matname not in ["P", "Q", "O"] and "allints" not in modifiers:
+    raise NotImplementedError()
 
 #--------------------------------------------------------------------------------#
 
@@ -399,7 +405,7 @@ else:
         print fstr(tens_to_check)
         print "-"*80 + "\n"
         print "Difference zero structure:"
-        print (diffnz*np.sign(diff)).zero_structure()
+        print (diffnz*np.sign(diff)).zero_structure(max_width=200)
         print "\n" + "="*80 + "\n"
 
     print "Summary\n" + "-"*80
@@ -414,7 +420,7 @@ else:
     print "  Percent of elements significantly different: {:5.2f}%".format(
         nonzero_thresh, nonzero_percent
     )
-    print "  Average difference magnitude: {:12.7e}".format(nonzero_thresh, np.mean(abs(diff)))
+    print "  Average difference magnitude: {:12.7e}".format(np.mean(abs(diff)))
 
 
 

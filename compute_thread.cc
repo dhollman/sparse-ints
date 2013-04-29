@@ -25,14 +25,6 @@ size_t SendThread::max_queue_size = size_t(2e8);
 	}
 
 
-// macros
-#define DBG_MSG(mymsg) \
-	if(opts.debug){\
-		print_lock->lock(); \
-		dbg_out_ << mymsg << endl;\
-		dbg_out_.flush(); \
-		print_lock->unlock(); \
-	}
 
 
 

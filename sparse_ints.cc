@@ -107,19 +107,24 @@ main(int argc, char** argv) {
     // Create keyvalue objects for each of the sections
     bool do_untrans, do_halftrans, do_fulltrans;
     Ref<KeyVal> keyval(new PrefixKeyVal(pkv, ":all"));
-    Ref<KeyVal> untranskv(new PrefixKeyVal(pkv, ":untrans"));
-    do_untrans = pkv->exists(":untrans");
-    Ref<KeyVal> halftranskv(new PrefixKeyVal(pkv, ":halftrans"));
-    do_halftrans = pkv->exists(":halftrans");
-    Ref<KeyVal> fulltranskv(new PrefixKeyVal(pkv, ":fulltrans"));
-    do_fulltrans = pkv->exists(":fulltrans");
 
     // Get the basis set
     Ref<GaussianBasisSet> obs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("basis").pointer(), "main\n");
+    // Get rid of general constractions for simplicity
+    if (obs->max_ncontraction() > 1) {
+        Ref<GaussianBasisSet> split_basis = new SplitBasisSet(obs, obs->name());
+        obs = split_basis;
+    }
+
     // Get the auxiliary basis set
     Ref<GaussianBasisSet> auxbs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("aux_basis").pointer(), "main\n");
+    // Get rid of general constractions for simplicity
+    if (auxbs->max_ncontraction() > 1) {
+        Ref<GaussianBasisSet> split_basis = new SplitBasisSet(auxbs, auxbs->name());
+        auxbs = split_basis;
+    }
 
     // Get the molecule object
     Ref<Molecule> mol = obs->molecule();
@@ -127,6 +132,7 @@ main(int argc, char** argv) {
     // Get some boolean options
     SparseIntOptions opts;
     opts.debug = keyval->booleanvalue("debug", KeyValValueboolean(false));
+    if(opts.debug && me == MASTER) cout << "Debugging enabled." << endl;
     opts.verbose = keyval->booleanvalue("verbose", KeyValValueboolean(false));
     opts.quiet = keyval->booleanvalue("quiet", KeyValValueboolean(false));
     opts.dynamic = keyval->booleanvalue("dynamic", KeyValValueboolean(true));
@@ -136,6 +142,7 @@ main(int argc, char** argv) {
     //   of various types of "fake" integrals to try
     //   and isolate problems with the transformation
     opts.use_fake_ints = keyval->intvalue("use_fake_ints", KeyValValueint(0));
+
 
     //Set the output type of the integrals
     if(opts.max_only)
@@ -158,7 +165,9 @@ main(int argc, char** argv) {
 
     /*-----------------------------------------------------*/
 	/*  Options specific to untrans int code          {{{2 */ #if fold_begin
-    //
+
+    Ref<KeyVal> untranskv(new PrefixKeyVal(pkv, ":untrans"));
+    do_untrans = pkv->exists(":untrans");
     bool use_ribs[4];
     if(do_untrans){
     	for_each(nriq, 4){
@@ -169,6 +178,9 @@ main(int argc, char** argv) {
     /*******************************************************/ #endif //2}}}
     /*-----------------------------------------------------*/
 	/*  Options specific to half trans code           {{{2 */ #if fold_begin
+
+    Ref<KeyVal> halftranskv(new PrefixKeyVal(pkv, ":halftrans"));
+    do_halftrans = pkv->exists(":halftrans");
 
     // Get the list of density matrix transformations to do.
     int num_densmats_half = 0;
@@ -185,6 +197,9 @@ main(int argc, char** argv) {
     /*-----------------------------------------------------*/
 	/* Options specific to full trans code            {{{2 */ #if fold_begin
 
+    Ref<KeyVal> fulltranskv(new PrefixKeyVal(pkv, ":fulltrans"));
+    do_fulltrans = pkv->exists(":fulltrans");
+
     // Get the list of density matrix transformations to do.
     int num_densmats_full = 0;
     vector<string> densmats_full;
@@ -198,7 +213,6 @@ main(int argc, char** argv) {
     /*******************************************************/ #endif //2}}}
     /*-----------------------------------------------------*/
 
-    delete[] infile;
 
     /***********************************************************/ #endif
     /*=========================================================*/
@@ -244,10 +258,13 @@ main(int argc, char** argv) {
     // Create the temporary directory
     if(me == MASTER){
     	int result = mkdir(tmpdir.c_str(), 0777);
-    	if(result!=0) {
+    	int num_retries = 0;
+    	while(num_retries < 15 && result != 0){
+    		num_retries++;
     		// Try deleting the directory and then making it
     		cout << "Deleting existing temporary directory '"<< tmpdir << "' to overwrite..." << endl;
     		system(("rm -rf " + tmpdir).c_str());
+    		sleep(1);
     		int result = mkdir(tmpdir.c_str(), 0777);
     	}
     	assert(result==0);
@@ -308,6 +325,12 @@ main(int argc, char** argv) {
     /***********************************************************/ #endif
     /*=========================================================*/
     /* Construct the CLHF object 							   */ #if fold_begin
+
+    //Ref<Integral> integral = Integral::initial_integral(argc, argv);
+    //if(integral.null()){
+    	//integral = Integral::get_default_integral();
+    //}
+    //assert(integral.nonnull());
 
     Ref<CLHF> hf = require_dynamic_cast<CLHF*>(
             keyval->describedclassvalue("hf").pointer(), "main\n");

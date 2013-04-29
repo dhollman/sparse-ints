@@ -1,5 +1,14 @@
-molecule = $:ne4
+molecule = $:h2
 molname = $molecule:name
+
+ne<Molecule>: (
+  symmetry=auto
+  units=angstrom
+  { atoms    geometry } = {
+     Ne  [ 0.0 0.0  0.0 ]
+  }
+  name="NeAtom"
+)
 
 ne10<Molecule>: (
   symmetry=auto
@@ -91,7 +100,7 @@ all: (
    aux_basis = $:auxbas
    corr_param = 1.0
    corr_type = "stg-6g"
-   debug = no
+   debug = yes
    do_eri = yes
    do_f12 = no
    do_f12g12 = no
@@ -103,32 +112,32 @@ all: (
  )
 
 untrans: (
-    {do_ri} = {
-        yes
-        yes
-        yes
-        yes
-    }
     %{do_ri} = {
-    %    no
-    %    no
-    %    no
-    %    no
+    %    yes
+    %    yes
+    %    yes
+    %    yes
     %}
+    {do_ri} = {
+        no
+        no
+        no
+        no
+    }
 
 )
-
-halftrans: (
-  {densmats} = { 
-%%      II
-%      PP
-%      QQ
-%      PQ
-      OO
-      RR
-  }
-)
-
+%
+%halftrans: (
+%  {densmats} = { 
+%%%      II
+%%      PP
+%%      QQ
+%%      PQ
+%      OO
+%      RR
+%  }
+%)
+%
 %fulltrans: (
 %   {densmats} = { 
 %%%        IIII

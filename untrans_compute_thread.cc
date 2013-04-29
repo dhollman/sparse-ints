@@ -8,14 +8,6 @@
 #include "compute_thread.h"
 #include "utils.h"
 
-// macros
-#define DBG_MSG(mymsg) \
-	if(opts.debug){\
-		print_lock->lock(); \
-		dbg_out_ << mymsg << endl;\
-		dbg_out_.flush(); \
-		print_lock->unlock(); \
-	}
 
 using namespace sparse_ints;
 using namespace sc;
@@ -59,6 +51,7 @@ UntransComputeThread::run()
 	/*=========================================================*/
 	/* Open the output file(s)	                          {{{1 */ #if fold_begin
 
+	DBG_MSG("UntransComputeThread starting up.");
 	ofstream* o = new ofstream[num_types_];
 	for_each(ity, num_types_){
 		stringstream sstr;
@@ -90,7 +83,10 @@ UntransComputeThread::run()
 	/*=========================================================*/
 	/* Loop over tasks and compute untransformed ints     {{{1 */ #if fold_begin
 
+	size_t total_mem_alloc = 0;
+	size_t current_mem_alloc = 0;
 	while(shellpairs.get_task(sh1, sh3)) {
+		DBG_MSG("Got pair " << sh1 << ", " << sh3);
 		// TODO utilize permutational symmetry when possible
 		// For now, just unroll the permutational symmetry (which
 		//   only needs to be done if the basis sets are equal; if
@@ -103,11 +99,11 @@ UntransComputeThread::run()
 			}
 			nsh2 = basis2_->nshell();
 			nsh4 = basis4_->nshell();
-			(*quartets_processed_) += nsh2*nsh4;
+			//(*quartets_processed_) += nsh2*nsh4;
 			identifier[0] = (idx_t)sh1;
 			identifier[2] = (idx_t)sh3;
-			const int nbf1 = basis1_->shell(sh1).nfunction();
-			const int nbf3 = basis3_->shell(sh3).nfunction();
+			int nbf1 = basis1_->shell(sh1).nfunction();
+			int nbf3 = basis3_->shell(sh3).nfunction();
 			int nbfpairs = nbf1*nbf3;
 
 			// Not used if we're writing all of the integrals,
@@ -115,7 +111,15 @@ UntransComputeThread::run()
 			value_t* max_vals[num_types_];
 			if(opts.out_type == MaxAbs){
 				for_each(ity, num_types_){
+					if(opts.debug){
+						current_mem_alloc = nbfpairs * sizeof(value_t);
+						total_mem_alloc += current_mem_alloc;
+						DBG_MSG("Allocating memory block of size " << memory_size_string((int)current_mem_alloc)
+								<< ".  Total memory allocated by this method: " << memory_size_string((int)total_mem_alloc));
+						DBG_MSG("nbfpairs = " << nbfpairs << "; nbf1 = " << nbf1 << "; nbf3 = " << nbf3);
+					}
 					max_vals[ity] = allocate<value_t>(nbfpairs);
+					DBG_MSG("Allocation successful.");
 					for_each(ipair, nbfpairs)
 						max_vals[ity][nbfpairs] = -1.0;
 				}
@@ -189,7 +193,13 @@ UntransComputeThread::run()
 				for_each(ity, num_types_){
 					o[ity].write((char*)identifier, 4*sizeof(idx_t));
 					o[ity].write((char*)max_vals, nbfpairs*sizeof(value_t));
+					if(opts.debug){
+						total_mem_alloc -= current_mem_alloc;
+						DBG_MSG("(Should be) deallocating memory block of size " << memory_size_string((int)current_mem_alloc)
+								<< ".  Total memory allocated is now: " << memory_size_string((int)total_mem_alloc));
+					}
 					deallocate(max_vals[ity]);
+					DBG_MSG("Deallocation successful.");
 					//max_vals[ity] = 0;
 				}
 			}

@@ -8,14 +8,6 @@
 #include "compute_thread.h"
 #include "utils.h"
 
-// macros
-#define DBG_MSG(mymsg) \
-	if(opts.debug){\
-		print_lock->lock(); \
-		dbg_out_ << mymsg << endl;\
-		dbg_out_.flush(); \
-		print_lock->unlock(); \
-	}
 
 using namespace sparse_ints;
 using namespace sc;
