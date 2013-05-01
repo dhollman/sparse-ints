@@ -26,6 +26,14 @@
 		print_lock->unlock(); \
 	}
 
+#define assert_equal(a, b) \
+	if(a != b){\
+		print_lock->lock(); \
+		cout << "Assertion failed on node " << msg->me() << "." << threadnum_ << ":  " << a << " == " << b << " returns false" << endl; \
+		assert(a == b); \
+		print_lock->unlock(); \
+	}
+
 namespace sparse_ints{
 
 class FullTransComputeThread;
@@ -53,6 +61,7 @@ protected:
 
 	sc::Ref<MessageGrp> msg;
 	sc::Ref<ThreadGrp> thr;
+    sc::Ref<sc::ConsumableResources> cr;
 
     int threadnum_;
     const sc::Ref<sc::GaussianBasisSet> basis1_;
@@ -61,6 +70,7 @@ protected:
     const sc::Ref<sc::GaussianBasisSet> basis4_;
     sc::Ref<sc::LocalSCMatrixKit> kit_;
     std::ofstream dbg_out_;
+
 
 	SparseIntsThread(
 		sc::Ref<MessageGrp> msg,
@@ -87,6 +97,8 @@ protected:
 			dbg_out_.open(sstr.str().c_str(), std::ios::out);
 			DBG_MSG("Debugging enabled.");
 		}
+
+		cr = ConsumableResources::get_default_instance();
 
     }
 
@@ -287,21 +299,12 @@ class SendThread : public FullTransCommThread {
 		double* data;
 	} DataSendTask;
 
-	typedef struct {
-		int ish1, ibf1;
-		int jsh3, jbf3;
-		int sh4;
-		int ndata;
-		double* data;
-	} BFDataSendTask;
-
 	std::queue<DataSendTask> task_queue_;
-	std::queue<BFDataSendTask> bftask_queue_;
 	sc::Ref<sc::ThreadLock> queue_lock_;
 
 	sc::Ref<sc::ThreadLock> comm_lock_;
 
-	long queue_size_;
+	size_t queue_size_;
 	//size_t queue_size_;
 	static size_t max_queue_size;
 
@@ -309,6 +312,8 @@ class SendThread : public FullTransCommThread {
 
 	std::vector<MessageGrp::MessageHandle> handles_;
 	std::vector<int> messages_;
+
+	bool queue_full_warning_printed_;
 
 public:
 	SendThread(
@@ -323,20 +328,15 @@ public:
 
 	~SendThread();
 
+	bool do_send_task(bool* tasks_done, int& pairs_sent);
+
     void run();
 
 	void distribute_shell_pair(
-		std::vector<RefSCMatrix> pair_mats,
+		SCMatrix** pair_mats,
 		int ish1, int jsh3, int sh4,
 		int threadnum
 	);
-
-	void distribute_bf_pair(
-		sc::RefSCMatrix ints2q,
-		int ibf1, int jbf3, int sh4,
-		int threadnum
-	);
-
 
     int get_pair_assignment(int sh3, int sh4);
 };
@@ -374,7 +374,8 @@ class ReceiveThread : public FullTransCommThread {
 public:
 
 	bool my_ints2q_complete_;
-	std::map<IntPair, std::vector<RefSCMatrix> > my_ints2q;
+	//std::map<IntPair, std::vector<RefSCMatrix> > my_ints2q;
+	std::map<IntPair, SCMatrix** > my_ints2q;
 
 	ReceiveThread(
 		Ref<MessageGrp> msg,
@@ -385,6 +386,8 @@ public:
 		const sc::Ref<sc::GaussianBasisSet>& bs4,
 		sc::Ref<sc::LocalSCMatrixKit>& kit
 	);
+
+	~ReceiveThread();
 
     bool get_my_next_pair(int&, int&);
 

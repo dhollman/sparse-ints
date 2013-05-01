@@ -9,6 +9,7 @@
 #include "utils.h"
 #include "binfiles.h"
 #include "compute_thread.h"
+#include "histogram.h"
 
 using namespace sparse_ints;
 using namespace sc;
@@ -145,7 +146,7 @@ sparse_ints::compute_untrans_threaded(
 		// Print the number of shell quartets computed per node
 		if(!opts.quiet){
 			cout << "Quartet distribution:" << setw(5) << endl;
-			PRINT_LIST(quartets_processed, msg->n()*nthr, 7, 10);
+			PRINT_LIST(quartets_processed, msg->n()*nthr, 12, 6);
 			cout << endl;
 		}
 	}

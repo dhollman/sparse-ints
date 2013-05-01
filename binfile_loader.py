@@ -158,16 +158,30 @@ class Shell(object):
 
 #--------------------------------------------------------------------------------#
 
+class IntStats(object):
+
+    def __init__(self):
+        self.values = None
+        self.max = None
+        self.average = None
+        self.median = None
+        self.stddev = None
+        self.histogram = None
+
+
+#--------------------------------------------------------------------------------#
+
 class BasisFunctionTensor(object):
 
-    def __init__(self, basis_sets, int_file_obj, force_reload=False):
+    def __init__(self, basis_sets, int_file_obj, force_reload=False, stat_type="max"):
         self.basis_sets = basis_sets
         self.shape = tuple(b.nbf for b in self.basis_sets)
         self.int_file_obj = int_file_obj
         self.mag_arrays = {}
+        self.stat_type = stat_type
         self.array, self.matrix_filled = make_matrix(
             self.shape,
-            int_file_obj.memmap_filename,
+            int_file_obj.memmap_filename(stat_type),
             bin_filename=int_file_obj.filename,
             force_reload=force_reload
         )
@@ -177,11 +191,11 @@ class BasisFunctionTensor(object):
         if self.mags_filled:
             self.mag_arrays[self.mag_filename] = self.mag_array
             self.mags_filled = False
-        self.mag_filename = self.int_file_obj.mags_memmap_filename(min_val_or_name, max_val)
+        self.mag_filename = self.int_file_obj.mags_memmap_filename(min_val_or_name, max_val, stat_type=self.stat_type)
         self.mag_array, self.mags_filled = make_mag_matrix(
             self.shape,
             self.mag_filename,
-            self.int_file_obj.memmap_filename,
+            self.int_file_obj.memmap_filename(stat_type=self.stat_type),
             force_new=not self.matrix_filled
         )
 
@@ -235,6 +249,14 @@ class BasisFunctionMatrix(BasisFunctionTensor):
 
 class LoadedIntFile(object):
 
+    stat_types = {
+        "max" : 2,
+        "average": 4,
+        "stddev": 8,
+        "median": 16,
+        "histogram": 128
+    }
+
     def __init__(self, filename, force_reload=False, verbose=False):
         self.filename = filename
         self.force_reload = force_reload
@@ -242,17 +264,17 @@ class LoadedIntFile(object):
         self.verbose = verbose
         self._load()
 
-    @property
-    def memmap_filename(self):
+    def memmap_filename(self, stat_type="max"):
         parts = self.filename.split('/')
         dot_filename = "/".join(parts[:-1]) + "/." + parts[-1]
         if dot_filename[-4:] == ".bin":
-            return dot_filename[:-4] + ".npmm"
-        else:
-            return dot_filename + ".npmm"
+            dot_filename = dot_filename[:-4]
+        if stat_type != "max":
+            dot_filename += "_" + stat_type
+        return dot_filename + ".npmm"
 
-    def mags_memmap_filename(self, minval_or_name, max_val=None):
-        rv = self.memmap_filename + "_mags_" + str(minval_or_name)
+    def mags_memmap_filename(self, minval_or_name, max_val=None, stat_type="max"):
+        rv = self.memmap_filename(stat_type) + "_mags_" + str(minval_or_name)
         if max_val is not None:
             rv += "_" + str(max_val)
         self.mag_filenames.append(rv)
@@ -271,47 +293,48 @@ class LoadedIntFile(object):
         tell the memmap object to delete its associated file
         when the object is deleted.
         """
-        del self.loaded_matrix.mag_array
-        for key in self.loaded_array.mag_arrays:
-            self.loaded_array.mag_arrays.pop(key)
-        self.loaded_array.mag_array = None
-        self.loaded_array.mags_filled = False
-        for mmfn in self.mag_filenames:
-            os.unlink(mmfn)
+        raise NotImplementedError()
+        #del self.loaded_matrix.mag_array
+        #for key in self.loaded_array.mag_arrays:
+        #    self.loaded_array.mag_arrays.pop(key)
+        #self.loaded_array.mag_array = None
+        #self.loaded_array.mags_filled = False
+        #for mmfn in self.mag_filenames:
+        #    os.unlink(mmfn)
 
     def load_mags(self, mag_function_or_min_val, max_val=None, force_reload=False):
-        self.loaded_array.init_mag_matrix(mag_function_or_min_val, max_val)
-        if not force_reload and (self.loaded_array.mags_filled
-                or self.mags_memmap_filename(mag_function_or_min_val, max_val) in self.loaded_array.mag_arrays):
-            if self.mags_memmap_filename(mag_function_or_min_val, max_val) in self.loaded_array.mag_arrays:
-                # Swap the active mag_array
-                self.loaded_array.mag_arrays[self.loaded_array.mag_filename] = self.loaded_array.mag_array
-                self.loaded_array.mag_array = self.loaded_array.mag_arrays[self.mags_memmap_filename(mag_function_or_min_val, max_val)]
-                self.loaded_array.mag_filename = self.mags_memmap_filename(mag_function_or_min_val, max_val)
-            if self.verbose:
-                print "    Magnitudes already loaded."
-            return
-        else:
-            if callable(mag_function_or_min_val):
-                mag = mag_function_or_min_val
-                raise NotImplementedError("Naming scheme for mag function not yet implemented")
+        bsmats = [getattr(self.loaded_stats, ty) for ty in self.available_stat_types]
+        for bsmat, stat_type in zip(bsmats, self.available_stat_types):
+            bsmat.init_mag_matrix(mag_function_or_min_val, max_val)
+            if not force_reload and (bsmat.mags_filled
+                    or self.mags_memmap_filename(mag_function_or_min_val, max_val, stat_type=stat_type) in bsmat.mag_arrays):
+                if self.mags_memmap_filename(mag_function_or_min_val, max_val, stat_type=stat_type) in bsmat.mag_arrays:
+                    # Swap the active mag_array
+                    bsmat.mag_arrays[bsmat.mag_filename] = bsmat.mag_array
+                    bsmat.mag_array = bsmat.mag_arrays[self.mags_memmap_filename(mag_function_or_min_val, max_val, stat_type=stat_type)]
+                    bsmat.mag_filename = self.mags_memmap_filename(mag_function_or_min_val, max_val, stat_type=stat_type)
+                #if self.verbose: print "    Magnitudes already loaded."
+                return
             else:
-                min_val = mag_function_or_min_val
-                def mag(val):
-                    if min_val is not None and abs(val) < pow(10.0, -min_val):
-                        return 0
-                    elif max_val is not None and abs(val) > pow(10.0, -max_val):
-                        return min_val-max_val
-                    return log10(abs(val)) + min_val
-            mag_vect = np.vectorize(mag)
-            print "    Loading magnitudes."
-            self.loaded_matrix.mag_array = mag_vect(self.loaded_matrix.array)
-            self.loaded_matrix.mags_filled = True
-
-
+                if callable(mag_function_or_min_val):
+                    mag = mag_function_or_min_val
+                    raise NotImplementedError("Naming scheme for mag function not yet implemented")
+                else:
+                    min_val = mag_function_or_min_val
+                    def mag(val):
+                        if min_val is not None and abs(val) < pow(10.0, -min_val):
+                            return 0
+                        elif max_val is not None and abs(val) > pow(10.0, -max_val):
+                            return min_val-max_val
+                        return log10(abs(val)) + min_val
+                mag_vect = np.vectorize(mag)
+                #print "    Loading magnitudes."
+                bsmat.mag_array = mag_vect(self.loaded_matrix.array)
+                bsmat.mags_filled = True
 
     def _load(self):
         with open(self.filename, 'rb') as f:
+            self.did_load = False
             #========================================#
             # first load all of the metadata
             # Get sizes and stuff
@@ -358,21 +381,27 @@ class LoadedIntFile(object):
             elif ints_type == 1:
                 # Legacy support for bs1==bs2==bs3==bs4 max only files
                 self._load_basis_legacy(f)
-                self._load_maxes(f)
+                self._load_stats(f, 2)
             #========================================#
-            elif ints_type in [2, 4, 8, 16]:
+            elif any(ints_type & ty for ty in self.stat_types.values()):
                 # File only contains maxima/average/std_dev/whatever
                 self._load_basis(f)
-                self._load_maxes(f)
+                self._load_stats(f, ints_type)
+            #========================================#
             elif ints_type == 32:
                 # Special untransformed integrals format
                 self._load_basis(f)
                 self._load_untrans_all(f)
+            #========================================#
             elif ints_type == 64:
                 # Density matrix format
                 self._load_dens_basis(f)
                 self._load_dens(f)
-            if self.verbose: print "    Done loading bin file into memeory mapped structure."
+            #========================================#
+            else:
+                raise NotImplementedError("Unrecognized ints_type {}".format(ints_type))
+            #========================================#
+            if self.verbose and self.did_load: print "    Done loading bin file into memeory mapped structure."
 
     def _load_dens_basis(self, f):
         int_ = self.int_
@@ -395,7 +424,10 @@ class LoadedIntFile(object):
         data_size = tot_size - metadata_size
         pbar = ProgressBar(data_size, indent='    ')
         float_ = self.float_
+        # ugly hack
+        self.loaded_stats = IntStats()
         self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[0], self, force_reload=self.force_reload)
+        self.loaded_stats.max = self.loaded_matrix
         if not self.loaded_matrix.matrix_filled or self.force_reload:
             for row in xrange(self.basis_sets[0].nbf):
                 for col in xrange(row + 1):
@@ -406,8 +438,11 @@ class LoadedIntFile(object):
             # New line at the end of the progress bar
             print
         else:
-            print "    Warning:  Matrix not reloaded"
+            pass
+            #print "    Warning:  Matrix not reloaded"
         self.loaded_matrix.matrix_filled = True
+        # Ugly hack again...
+        self.available_stat_types = ['max']
 
     def _load_basis_legacy(self, f):
         # Legacy support for bs1==bs2==bs3==bs4 max only files
@@ -441,38 +476,69 @@ class LoadedIntFile(object):
                 shells.append(sh)
             self.basis_sets.append(BasisSet(shells))
 
-    def _load_maxes(self, f):
+    def _load_stats(self, f, ints_type):
         metadata_size = f.tell()
         tot_size = getsize(self.filename)
         data_size = tot_size - metadata_size
         float_, short_ = self.float_, self.short_
         pbar = ProgressBar(data_size, indent='    ')
-        self.loaded_matrix = BasisFunctionMatrix(self.basis_sets[0], self.basis_sets[2], self, force_reload=self.force_reload)
-        if not self.loaded_matrix.matrix_filled or self.force_reload:
+        self.loaded_stats = IntStats()
+        for stat_type in self.stat_types:
+            if ints_type & self.stat_types[stat_type]:
+                tmp = BasisFunctionMatrix(
+                    self.basis_sets[0],
+                    self.basis_sets[2],
+                    self,
+                    force_reload=self.force_reload,
+                    stat_type=stat_type
+                )
+                setattr(self.loaded_stats, stat_type, tmp)
+        self.loaded_matrix = self.loaded_stats.max
+        stat_types_sorted = sorted(self.stat_types.keys(), key=lambda k: self.stat_types[k])
+        needed_stats = [ty for ty in stat_types_sorted if self.stat_types[ty] & ints_type]
+        if "histogram" in needed_stats:
+            raise NotImplementedError()
+        bsmats = [getattr(self.loaded_stats, ty) for ty in needed_stats]
+        if not all(bsmat.matrix_filled for bsmat in bsmats) or self.force_reload:
+            self.did_load = True
             if self.verbose: print "  Loading matrix from {}".format(self.filename)
             while True:
                 try:
-                    if not self.loaded_matrix.matrix_filled:
-                        si1, _, si3, __ = short_(4)
-                        s1, s3 = self.basis_sets[0].shells[si1], self.basis_sets[2].shells[si3]
-                        nfunc = s1.nfunction * s3.nfunction
+                    # Read the identifier
+                    si1, _, si3, __ = short_(4)
+                    s1, s3 = self.basis_sets[0].shells[si1], self.basis_sets[2].shells[si3]
+                    nfunc = s1.nfunction * s3.nfunction
+
+                    # loop over the possible types of statistics
+                    for bsmat in bsmats:
+                        # read the data regardless
                         buff = np.array(float_(nfunc))
-                        buff = buff.reshape((s1.nfunction, s3.nfunction))
-                        self.loaded_matrix.array[s1.slice, s3.slice] = buff
+                        # only write to the matrix if it's writable
+                        if not bsmat.matrix_filled:
+                            if any(abs(b) > 1e10 for b in buff):
+                                raise ValueError("Strange value {} for indices {}, {}".format(
+                                    np.amax(abs(buff)), si1, si3
+                                ))
+                            buff = buff.reshape((s1.nfunction, s3.nfunction))
+                            bsmat.matrix[s1.slice, s3.slice] = buff
                         if self.verbose: pbar.update(f.tell()-metadata_size)
                 except EOFError:
                     # We've reached the end of the file, so break
                     break
                 except Exception:
                     # First delete the mem_map_file, since the whole thing was not successfully loaded
-                    os.unlink(self.memmap_filename)
+                    for ty in needed_stats:
+                        os.unlink(self.memmap_filename(stat_type=ty))
                     # then reraise the exception
                     raise
             # New line at the end of the progress bar
             print
         else:
-            print "    Warning:  Matrix not reloaded"
-        self.loaded_matrix.matrix_filled = True
+            pass
+            #print "    Warning:  Matrix not reloaded"
+        for bsmat in bsmats:
+            bsmat.matrix_filled = True
+        self.available_stat_types = needed_stats
 
     def _load_all(self, f):
         metadata_size = f.tell()
@@ -502,7 +568,7 @@ class LoadedIntFile(object):
                     break
                 except Exception:
                     # First delete the mem_map_file, since the whole thing was not successfully loaded
-                    os.unlink(self.memmap_filename)
+                    os.unlink(self.memmap_filename())
                     # then reraise the exception
                     raise
             # New line at the end of the progress bar
@@ -548,7 +614,7 @@ class LoadedIntFile(object):
                     break
                 except Exception:
                     # First delete the mem_map_file, since the whole thing was not successfully loaded
-                    os.unlink(self.memmap_filename)
+                    os.unlink(self.memmap_filename())
                     # then reraise the exception
                     raise
             # New line at the end of the progress bar

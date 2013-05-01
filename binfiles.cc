@@ -122,7 +122,7 @@ write_header(
 	const Ref<GaussianBasisSet>& bs2,
 	const Ref<GaussianBasisSet>& bs3,
 	const Ref<GaussianBasisSet>& bs4,
-	const binfile_type ty
+	const int ty
 )
 {
 	write_header_common(o);

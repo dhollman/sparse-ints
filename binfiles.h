@@ -25,7 +25,7 @@ void write_header(
 	const sc::Ref<sc::GaussianBasisSet>& bs2,
 	const sc::Ref<sc::GaussianBasisSet>& bs3,
 	const sc::Ref<sc::GaussianBasisSet>& bs4,
-	const sparse_ints::binfile_type ty
+	const int ty
 );
 
 void write_density_binfile(

@@ -32,6 +32,7 @@
 #include "compute_hti.h"
 #include "compute_untrans.h"
 #include "binfiles.h"
+#include <limits>
 
 
 using namespace sparse_ints;
@@ -49,6 +50,14 @@ main(int argc, char** argv) {
 
     /*=========================================================*/
     /* Create msg, thr, and timer                              */ #if fold_begin
+
+    //---------------------------------------------------------//
+    // Create the ConsumableResources
+
+    Ref<ConsumableResources> cr = ConsumableResources::initial_instance(argc,argv);
+    if (cr.null())
+    	cr = ConsumableResources::get_default_instance();
+    ConsumableResources::set_default_instance(cr);
 
     //---------------------------------------------------------//
     // Create the message group
@@ -81,6 +90,7 @@ main(int argc, char** argv) {
         cout << "Running on " << n << " node"
              << (n == 1 ? "" : "s") << " with " << nthr << " thread"
              << (nthr == 1 ? "" : "s") << " per node." << endl;
+        cout << "Max memory per MPI process is " << memory_size_string((size_t)cr->max_memory()) << "." << endl;
     }
 
     //---------------------------------------------------------//
@@ -108,22 +118,27 @@ main(int argc, char** argv) {
     bool do_untrans, do_halftrans, do_fulltrans;
     Ref<KeyVal> keyval(new PrefixKeyVal(pkv, ":all"));
 
+    bool split_basis = keyval->booleanvalue("split_basis", KeyValValueboolean(false));
+
     // Get the basis set
     Ref<GaussianBasisSet> obs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("basis").pointer(), "main\n");
-    // Get rid of general constractions for simplicity
-    if (obs->max_ncontraction() > 1) {
-        Ref<GaussianBasisSet> split_basis = new SplitBasisSet(obs, obs->name());
-        obs = split_basis;
-    }
 
     // Get the auxiliary basis set
     Ref<GaussianBasisSet> auxbs = require_dynamic_cast<GaussianBasisSet*>(
             keyval->describedclassvalue("aux_basis").pointer(), "main\n");
-    // Get rid of general constractions for simplicity
-    if (auxbs->max_ncontraction() > 1) {
-        Ref<GaussianBasisSet> split_basis = new SplitBasisSet(auxbs, auxbs->name());
-        auxbs = split_basis;
+
+    if(split_basis) {
+    	// Get rid of general constractions for simplicity
+    	if (obs->max_ncontraction() > 1) {
+    		Ref<GaussianBasisSet> split_basis = new SplitBasisSet(obs, obs->name());
+    		obs = split_basis;
+    	}
+    	// Get rid of general constractions for simplicity
+    	if (auxbs->max_ncontraction() > 1) {
+    		Ref<GaussianBasisSet> split_basis = new SplitBasisSet(auxbs, auxbs->name());
+    		auxbs = split_basis;
+    	}
     }
 
     // Get the molecule object
@@ -136,19 +151,36 @@ main(int argc, char** argv) {
     opts.verbose = keyval->booleanvalue("verbose", KeyValValueboolean(false));
     opts.quiet = keyval->booleanvalue("quiet", KeyValValueboolean(false));
     opts.dynamic = keyval->booleanvalue("dynamic", KeyValValueboolean(true));
-    opts.max_only = keyval->booleanvalue("max_only", KeyValValueboolean(true));
 
     // For debugging purposes, force the computation
     //   of various types of "fake" integrals to try
     //   and isolate problems with the transformation
     opts.use_fake_ints = keyval->intvalue("use_fake_ints", KeyValValueint(0));
 
+    opts.max_only = keyval->booleanvalue("max_only", KeyValValueboolean(false));
+    opts.max_only = opts.max_only || keyval->booleanvalue("do_max", KeyValValueboolean(false));
+    opts.do_average = keyval->booleanvalue("do_average", KeyValValueboolean(false));
+    opts.do_histogram = keyval->booleanvalue("do_histogram", KeyValValueboolean(false));
+    opts.do_median = keyval->booleanvalue("do_median", KeyValValueboolean(false));
+    opts.do_stddev = keyval->booleanvalue("do_stddev", KeyValValueboolean(false));
 
     //Set the output type of the integrals
-    if(opts.max_only)
-    	opts.out_type = MaxAbs;
-    else
+    if(!opts.max_only) {
     	opts.out_type = AllInts;
+    } else {
+    	opts.out_type = 0;
+    	if(opts.max_only)
+    		opts.out_type |= (int)MaxAbs;
+    	if(opts.do_average)
+    		opts.out_type |= (int)Average;
+    	if(opts.do_median)
+    		opts.out_type |= (int)Median;
+    	if(opts.do_stddev)
+    		opts.out_type |= (int)StdDev;
+    	if(opts.do_histogram)
+    		opts.out_type |= (int)Histogram;
+    	assert(opts.out_type != 0);
+    }
     sparse_ints::opts = opts;
 
     // Get which integrals to do
@@ -157,6 +189,7 @@ main(int argc, char** argv) {
     bool do_f12g12 = keyval->booleanvalue("do_f12g12", KeyValValueboolean(false));
     bool do_f12sq = keyval->booleanvalue("do_f12sq", KeyValValueboolean(false));
     bool do_dblcomm = keyval->booleanvalue("do_dblcomm", KeyValValueboolean(false));
+
 
     // Get which (extra) density matrices to do, even if we don't need them
     bool do_P = keyval->booleanvalue("do_P", KeyValValueboolean(false));
@@ -282,16 +315,10 @@ main(int argc, char** argv) {
     string molname = keyval->stringvalue("molname");
     string prefix = output_dir + "/" + molname + "_" + basname + "_" + abasname + "_";
     string densprefix = prefix + "";
-    if(opts.out_type == MaxAbs)
+    if(opts.out_type & (MaxAbs | Median | Average | StdDev))
 		prefix += "allmax_";
     else if(opts.out_type == AllInts)
     	prefix += "allints_";
-    else if(opts.out_type == Median)
-    	prefix += "median_";
-    else if(opts.out_type == Average)
-    	prefix += "average_";
-    else if(opts.out_type == StdDev)
-    	prefix += "stddev_";
     else
     	assert(not_implemented);
 
@@ -429,6 +456,7 @@ main(int argc, char** argv) {
     	// Get P
     	timer.enter("HF");
 		RefSymmSCMatrix Pso = hf->density();
+		assert(hf->basis() == obs);
 		timer.exit("HF");
 		Pso.scale(0.5);
 		RefSymmSCMatrix Ptmp = pl->to_AO_basis(Pso);
@@ -827,6 +855,10 @@ main(int argc, char** argv) {
     		cout << "WARNING: Could not delete temporary directory " << tmpdir << "." << endl;
     	}
     }
+
+    thr->delete_threads();
+    cr->print_summary(ExEnv::out0(), true, true);
+    ExEnv::out0().flush();
 
     return 0;
 

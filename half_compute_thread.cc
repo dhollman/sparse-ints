@@ -7,6 +7,7 @@
 
 #include "compute_thread.h"
 #include "utils.h"
+#include "histogram.h"
 
 
 using namespace sparse_ints;
@@ -171,6 +172,16 @@ HalfTransComputeThread::run()
 				RefSymmSCMatrix P2 = (*mapit_).second.second;
 				for_each(ity, num_types_){
 					value_t maxvals[nbfpairs];
+					value_t averages[nbfpairs];
+					value_t medians[nbfpairs];
+					value_t stddevs[nbfpairs];
+					LogHistogram* histograms[nbfpairs];
+					if(opts.out_type & Histogram) {
+						for_each(ipair, nbfpairs) {
+							histograms[ipair] = new LogHistogram();
+						}
+					}
+
 					// Write the identifier for this type/density pairname/shell pair
 					o[pairname][ity].write((char*)&identifier, 4*sizeof(idx_t));
 					for_each(ibf1,nbf1, ibf3,nbf3){
@@ -182,11 +193,7 @@ HalfTransComputeThread::run()
 						// Second quarter transform
 						RefSCMatrix myhalf = transtmp * P2;
 
-						if(opts.out_type == MaxAbs){
-							// get the maximum absolute value
-							maxvals[ipair] = myhalf->maxabs();
-						}
-						else if(opts.out_type == AllInts){
+						if(opts.out_type == AllInts){
 							value_t allvals[nbf2tot*nbf4tot];
 							int nrow = myhalf->nrow();
 							int ncol = myhalf->ncol();
@@ -196,12 +203,48 @@ HalfTransComputeThread::run()
 							// write all of the integrals for the current bf paicompute_hti.hr
 							o[pairname][ity].write((char*)&allvals, nbf2tot*nbf4tot*sizeof(value_t));
 						}
-						else {
-							assert(not_implemented);
+						else{
+							if(opts.out_type & MaxAbs){
+								// get the maximum absolute value
+								maxvals[ipair] = myhalf->maxabs();
+							}
+							//--------------------//
+							if(opts.out_type & Average){
+								averages[ipair] = average<value_t>(myhalf);
+								 if(opts.out_type & StdDev){
+									 stddevs[ipair] = stddev<value_t>(myhalf, averages[ipair]);
+								 }
+							}
+							else if(opts.out_type & StdDev){
+								stddevs[ipair] = stddev<value_t>(myhalf);
+							}
+							//--------------------//
+							if(opts.out_type & Median){
+								medians[ipair] = median<value_t>(myhalf);
+							}
+							//--------------------//
+							if(opts.out_type & Histogram){
+								histograms[ipair]->insert_matrix(myhalf);
+							}
 						}
 					}
-					if(opts.out_type == MaxAbs){
+					if(opts.out_type & MaxAbs){
 						o[pairname][ity].write((char*)&maxvals, nbfpairs*sizeof(value_t));
+					}
+					if(opts.out_type & Average){
+						o[pairname][ity].write((char*)&averages, nbfpairs*sizeof(value_t));
+					}
+					if(opts.out_type & StdDev){
+						o[pairname][ity].write((char*)&stddevs, nbfpairs*sizeof(value_t));
+					}
+					if(opts.out_type & Median){
+						o[pairname][ity].write((char*)&medians, nbfpairs*sizeof(value_t));
+					}
+					if(opts.out_type & Histogram){
+						for_each(ipair, nbfpairs){
+							histograms[ipair]->write(o[pairname][ity]);
+							delete histograms[ipair];
+						}
 					}
 				} // end loop over types
 			} // End loop over density matrix pairs

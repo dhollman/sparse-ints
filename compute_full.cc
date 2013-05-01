@@ -44,7 +44,7 @@ sparse_ints::compute_full_trans_ints(
 
     int* quartets_processed[msg->n()];
     for_each(iproc, msg->n()){
-    	quartets_processed[iproc] = new int[nthr];
+    	quartets_processed[iproc] = allocate<int>(nthr);
     	for_each(ithr, thr->nthread()){
     		quartets_processed[iproc][ithr] = 0;
     	}
@@ -171,6 +171,12 @@ sparse_ints::compute_full_trans_ints(
 			}
 		}
 	}
+	// Report memory status:
+	//ExEnv::outn() << indent << "Node " << msg->me() << " consumable resources summary after half transform and all sends:" << endl;
+	//ExEnv::outn() << incindent;
+	//ConsumableResources::get_default_instance()->print_summary(ExEnv::outn(), true, true);
+	//ExEnv::outn() << decindent;
+
 	timer.exit("node gather");
 	DBG("Waiting for other nodes to finish");
 	/***********************************************************/ #endif //1}}}
@@ -232,7 +238,7 @@ sparse_ints::compute_full_trans_ints(
 	/* Cleanup             		                          {{{1 */ #if fold_begin
     thr->delete_threads();
     for_each(iproc, msg->n()){
-    	delete[] quartets_processed[iproc];
+    	deallocate(quartets_processed[iproc]);
     }
 	/***********************************************************/ #endif //1}}}
 	/*=========================================================*/

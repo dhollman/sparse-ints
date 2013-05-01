@@ -95,16 +95,16 @@ def data_size_str(bytes):
 
 def load_binfile(mat):
     filename = bin_name(mat)
-    print "  Loading matrix {} from {}".format(mat, filename)
+    #print "  Loading matrix {} from {}".format(mat, filename)
     ints = LoadedIntFile(filename, verbose=True)
     ints.load_mags(min_val, max_val)
-    print "    Loading complete!  Memmap file size is {}".format(
-        data_size_str(os.path.getsize(mem_map_name(mat)))
-    )
+    #print "    Loading complete!  Memmap file size is {}".format(
+    #    data_size_str(os.path.getsize(mem_map_name(mat)))
+    #)
     if ints.ints_type == 0 or ints.ints_type == 32:
         shp = ints.loaded_array.mag_array.shape
         ints.loaded_array.mag_array = ints.loaded_array.mag_array.reshape((shp[0]*shp[1], shp[2]*shp[3]))
-    return ints.loaded_array
+    return ints
 
 
 def add_scale(mat):
@@ -164,10 +164,12 @@ def png_dir(mat, stuff):
         rv = join_path(rv, qual[0])
     return rv
 
-def png_name(mat, stuff, grid=False, resized=False):
+def png_name(mat, stuff, grid=False, resized=False, stat_type="max"):
     if grid and resized:
         raise ValueError
     rv = join_path(png_dir(mat, stuff), mat + "_")
+    if stat_type != "max":
+        rv += stat_type + "_"
     rv += str(min_val)
     rv += "_" + str(max_val)
     if grid:
@@ -200,6 +202,7 @@ def print_doing_if_needed(stuff):
     if not doing_printed:
         print "Doing {}...".format(stuff)
         doing_printed = True
+
 #--------------------------------------------------------------------------------#
 
 num_mats = 0
@@ -224,20 +227,24 @@ for stuff in sets:
             if debug: print "  Skipping {} because {} does not exist.".format(mat, bin_name(mat))
             continue
 
-        grd, rsz, png = png_name(mat, stuff, grid=True), png_name(mat, stuff, resized=True), png_name(mat, stuff)
         bin = bin_name(mat)
+        main_type="max"
+        grd = png_name(mat, stuff, grid=True, stat_type=main_type)
+        rsz = png_name(mat, stuff, resized=True, stat_type=main_type)
+        png = png_name(mat, stuff, stat_type=main_type)
+
         if not exists(png):
             print_doing_if_needed(stuff)
             print "  Doing {} because full-res png {} does not exist".format(mat, png)
         elif not exists(rsz):
             print_doing_if_needed(stuff)
             print "  Doing {} because resized png {} does not exist".format(mat, rsz)
-        #elif not exists(grd) and isinstance(m, BasisFunctionMatrix):
-        #    print_doing_if_needed(stuff)
-        #    print "  Doing {} because gridded png {} does not exist".format(mat, grd)
-        #elif is_newer(rsz, grd) and isinstance(m, BasisFunctionMatrix):
-        #    print_doing_if_needed(stuff)
-        #    print "  Doing {} because resized png {} is newer than gridded png {}".format(mat, rsz, grd)
+        elif not "allints" in bin and not exists(grd):
+            print_doing_if_needed(stuff)
+            print "  Doing {} because gridded png {} does not exist".format(mat, grd)
+        elif not "allints" in bin and is_newer(rsz, grd):
+            print_doing_if_needed(stuff)
+            print "  Doing {} because resized png {} is newer than gridded png {}".format(mat, rsz, grd)
         elif is_newer(png, rsz):
             print_doing_if_needed(stuff)
             print "  Doing {} because full-res png {} is newer than resized png {}".format(mat, png, rsz)
@@ -248,15 +255,13 @@ for stuff in sets:
             if debug: print "  Skipping {} because nothing needs to be done.".format(mat)
             continue
 
-        num_processed += 1
-
-        # Remove the memmap file if the bin file is newer
-        if exists(mem_map_name(mat)) and is_newer(bin_name(mat), mem_map_name(mat)):
-            os.unlink(mem_map_name(mat))
-
         # load the matrix
         try:
-            m = load_binfile(mat)
+            if "allints" in bin_name(mat):
+                continue
+            lif = load_binfile(mat)
+            if lif.ints_type == 0 or lif.ints_type == 32:
+                raise NotImplementedError()
         except Exception as e:
             print "  Could not load binary file {}.  The following error was raised:\n    {}".format(
                 bin_name(mat), type(e).__name__ + ": " + e.message
@@ -265,81 +270,89 @@ for stuff in sets:
             traceback.print_exc(file=sys.stdout)
             continue
 
-        # Create a png directory if we need to
-        if not exists(png_dir(mat, stuff)):
-            os.makedirs(png_dir(mat, stuff))
+        for ty in lif.available_stat_types:
+            m = getattr(lif.loaded_stats, ty)
+            grd = png_name(mat, stuff, grid=True, stat_type=ty)
+            rsz = png_name(mat, stuff, resized=True, stat_type=ty)
+            png = png_name(mat, stuff, stat_type=ty)
 
-        # Only write a new png using pylab if we have to
-        if not exists(png_name(mat, stuff)) or not is_newer(png_name(mat, stuff), bin_name(mat)):
-            if not m.mags_filled:
-                raise NotImplementedError("Something went wrong.  Shouldn't get here")
-            cmap = pl.get_cmap(cmap_name)
-            norm = None
-            if min_val is not None and max_val is not None:
-                norm = Normalize(0, min_val-max_val)
-            if do_scale:
-                raise NotImplementedError
-            mmsize = os.path.getsize(mem_map_name(mat))
-            mat_to_use = m.mag_matrix
-            if mmsize > max_mm_size:
-                max_chunk = int(math.floor(math.sqrt(max_mm_size / 4.0)))
-                # For now, assume square matrix
-                if mat_to_use.shape[0] != mat_to_use.shape[1]:
+            num_processed += 1
+
+            # Create a png directory if we need to
+            if not exists(png_dir(mat, stuff)):
+                os.makedirs(png_dir(mat, stuff))
+
+            # Only write a new png using pylab if we have to
+            if not exists(png) or not is_newer(png, bin_name(mat)):
+                if not m.mags_filled:
+                    raise NotImplementedError("Something went wrong.  Shouldn't get here")
+                cmap = pl.get_cmap(cmap_name)
+                norm = None
+                if min_val is not None and max_val is not None:
+                    norm = Normalize(0, min_val-max_val)
+                if do_scale:
                     raise NotImplementedError
-                num_chunks = int(math.ceil(mat_to_use.shape[0]/float(max_chunk)))
-                print "  Running matshow from pylab using {} different {}x{} blocks...".format(
-                    num_chunks*num_chunks, max_chunk, max_chunk)
-                tmp_rows = []
-                for ichnk in xrange(num_chunks):
-                    tmpfiles = []
-                    istart, iend = ichnk*max_chunk, (ichnk+1)*max_chunk
-                    for jchnk in xrange(num_chunks):
-                        jstart, jend = jchnk*max_chunk, (jchnk+1)*max_chunk
-                        chnkmat = mat_to_use[istart:iend, jstart:jend]
-                        tmpfiles.append(join_path(tmpdir, mat + "_{:03d}_{:03d}.png".format(ichnk, jchnk)))
-                        print "        Running matshow for block {}, {}...".format(ichnk, jchnk)
-                        tmp = pl.matshow(chnkmat, cmap=cmap, norm=norm)
-                        tmp.write_png(tmpfiles[-1], noscale=True)
-                    tmp_rows.append(join_path(tmpdir, mat + "_{:03d}_row.png".format(ichnk)))
-                    print "      Compositing row chunks for row chunk {}...".format(ichnk)
-                    os.system("{convert} {images} +append {rowimg}".format(
-                        images=" ".join(tmpfiles), rowimg=tmp_rows[-1], convert=convert
+                mmsize = os.path.getsize(mem_map_name(mat))
+                mat_to_use = m.mag_matrix
+                if mmsize > max_mm_size:
+                    max_chunk = int(math.floor(math.sqrt(max_mm_size / 4.0)))
+                    # For now, assume square matrix
+                    if mat_to_use.shape[0] != mat_to_use.shape[1]:
+                        raise NotImplementedError
+                    num_chunks = int(math.ceil(mat_to_use.shape[0]/float(max_chunk)))
+                    print "  Running matshow from pylab using {} different {}x{} blocks...".format(
+                        num_chunks*num_chunks, max_chunk, max_chunk)
+                    tmp_rows = []
+                    for ichnk in xrange(num_chunks):
+                        tmpfiles = []
+                        istart, iend = ichnk*max_chunk, (ichnk+1)*max_chunk
+                        for jchnk in xrange(num_chunks):
+                            jstart, jend = jchnk*max_chunk, (jchnk+1)*max_chunk
+                            chnkmat = mat_to_use[istart:iend, jstart:jend]
+                            tmpfiles.append(join_path(tmpdir, mat + "_{:03d}_{:03d}.png".format(ichnk, jchnk)))
+                            print "        Running matshow for block {}, {}...".format(ichnk, jchnk)
+                            tmp = pl.matshow(chnkmat, cmap=cmap, norm=norm)
+                            tmp.write_png(tmpfiles[-1], noscale=True)
+                        tmp_rows.append(join_path(tmpdir, mat + "_{:03d}_row.png".format(ichnk)))
+                        print "      Compositing row chunks for row chunk {}...".format(ichnk)
+                        os.system("{convert} {images} +append {rowimg}".format(
+                            images=" ".join(tmpfiles), rowimg=tmp_rows[-1], convert=convert
+                        ))
+                        for f in tmpfiles:
+                            os.unlink(f)
+                    print "      Compositing all rows..."
+                    os.system("{convert} {images} -append {outimg}".format(
+                        images=" ".join(tmp_rows), outimg=png, convert=convert
                     ))
-                    for f in tmpfiles:
+                    for f in tmp_rows:
                         os.unlink(f)
-                print "      Compositing all rows..."
-                os.system("{convert} {images} -append {outimg}".format(
-                    images=" ".join(tmp_rows), outimg=png_name(mat, stuff), convert=convert
-                ))
-                for f in tmp_rows:
-                    os.unlink(f)
-                print "      Completed multi-pass matrix render!"
-            else:
-                print "  Running matshow from pylab..."
-                tmp = pl.matshow(mat_to_use, cmap=cmap, norm=norm)
-                tmp.write_png(png_name(mat, stuff), noscale=True)
+                    print "      Completed multi-pass matrix render!"
+                else:
+                    print "  Running matshow from pylab..."
+                    tmp = pl.matshow(mat_to_use, cmap=cmap, norm=norm)
+                    tmp.write_png(png, noscale=True)
 
-        if not exists(png_name(mat, stuff, resized=True)) or is_newer(png_name(mat, stuff), png_name(mat, stuff, resized=True)):
-            image_size = image_width # for now
-            print "  Converting image of {} to size {image_size}x{col_size}...".format(
-                mat, col_size = image_size if not do_scale else image_size + image_size // scale_denom,
-                **globals())
-            os.system("{convert} {pngname} -scale {image_size}x{col_size} {resized_name}".format(
-                resized_name=png_name(mat, stuff, resized=True),
-                col_size = image_size if not do_scale else image_size + image_size // scale_denom,
-                pngname=png_name(mat, stuff),
-                **globals()))
+            if not exists(rsz) or is_newer(png, rsz):
+                image_size = image_width # for now
+                print "  Converting image of {} to size {image_size}x{col_size}...".format(
+                    mat, col_size = image_size if not do_scale else image_size + image_size // scale_denom,
+                    **globals())
+                os.system("{convert} {pngname} -scale {image_size}x{col_size} {resized_name}".format(
+                    resized_name=rsz,
+                    col_size = image_size if not do_scale else image_size + image_size // scale_denom,
+                    pngname=png,
+                    **globals()))
 
-        if not exists(png_name(mat, stuff, grid=True)) or is_newer(png_name(mat, stuff, resized=True), png_name(mat, stuff, grid=True)):
-            if isinstance(m, BasisFunctionMatrix):
-                print "  Drawing grid for {}...".format(mat)
-                os.system("{convert} {resized_name} -density 300 -fill none -stroke \"{grid_color}\" -strokewidth 1 -draw \"stroke-opacity 1 path '{drawstr}'\" {grid_version}".format(
-                    resized_name=png_name(mat, stuff, resized=True),
-                    grid_version=png_name(mat, stuff, grid=True),
-                    drawstr=m.draw_lines_string(image_width), **globals()
-                ))
+            if not exists(grd) or is_newer(rsz, grd):
+                if isinstance(m, BasisFunctionMatrix):
+                    print "  Drawing grid for {}...".format(mat)
+                    os.system("{convert} {resized_name} -density 300 -fill none -stroke \"{grid_color}\" -strokewidth 1 -draw \"stroke-opacity 1 path '{drawstr}'\" {grid_version}".format(
+                        resized_name=rsz,
+                        grid_version=grd,
+                        drawstr=m.draw_lines_string(image_width), **globals()
+                    ))
 
-        print "  Done with {}\n  {}".format(mat, '-'*50)
+            print "  Done with {}\n  {}".format(mat, '-'*50)
 
     if doing_printed:
         print "Done with {}\n{}".format(stuff, '='*60)

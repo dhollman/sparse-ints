@@ -87,7 +87,8 @@ typedef enum BinfileContent {
 	StdDev = 8,
 	Median = 16,
 	AllIntsUntransformed = 32,
-	DensityMatrix = 64
+	DensityMatrix = 64,
+	Histogram = 128
 } binfile_type;
 
 class MultiTimer {
@@ -157,8 +158,12 @@ typedef struct {
 	bool max_only;
 	bool dynamic;
 	bool do_tar;  // Should we make tar files instead of making one, big, bin file?
+	bool do_average;
+	bool do_histogram;
+	bool do_median;
+	bool do_stddev;
 	int use_fake_ints;  // for debugging purposes
-	binfile_type out_type;
+	int out_type;
 } SparseIntOptions;
 
 using namespace sc;

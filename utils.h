@@ -7,6 +7,7 @@
 
 #include "sparse_ints.h"
 #include <stdlib.h>
+#include <math.h>
 
 #ifndef UTILS_H_
 #define UTILS_H_
@@ -28,41 +29,60 @@ using namespace std;
 //	return maxval;
 //}
 //
-//template <class T=value_t>
-//inline T
-//mean(sc::RefSCMatrix& mat){
-//	int nrows = mat->nrow();
-//	int ncols = mat->ncol();
-//	T total = 0.0;
-//	for_each(row,nrows, col,ncols){
-//		T tmpval = (T)fabs(mat->get_element(row, col));
-//		total += tmpval;
-//	}
-//	return total/((T)(nrows*ncols));
-//}
-//
-//inline int compare(const void * a, const void * b)
-//{
-//  return ( *(int*)a - *(int*)b );
-//}
-//
-//
-//template <class T=value_t>
-//inline T
-//median(sc::RefSCMatrix& mat){
-//	int nrows = mat->nrow();
-//	int ncols = mat->ncol();
-//	double *data = new double[nrows*ncols];
-//	for_each(idata, nrows*ncols){
-//		data[idata] = fabs(data[idata]);
-//	}
-//	mat->convert(data);
-//	qsort(data, nrows*ncols, sizeof(double), compare);
-//	T rv = (T)data[nrows*ncols/2];
-//	delete[] data;
-//	return rv;
-//}
-//
+template <class T>
+inline T
+average(sc::SCMatrix* mat){
+	int nrows = mat->nrow();
+	int ncols = mat->ncol();
+	T total = 0.0;
+	for_each(row,nrows, col,ncols){
+		T tmpval = (T)fabs(mat->get_element(row, col));
+		total += tmpval;
+	}
+	return total/((T)(nrows*ncols));
+}
+
+inline int compare(const void * a, const void * b)
+{
+  return ( *(int*)a - *(int*)b );
+}
+
+template <class T>
+inline T
+median(sc::SCMatrix* mat){
+	int nrows = mat->nrow();
+	int ncols = mat->ncol();
+	double *data = new double[nrows*ncols];
+	for_each(idata, nrows*ncols){
+		data[idata] = fabs(data[idata]);
+	}
+	mat->convert(data);
+	qsort(data, nrows*ncols, sizeof(double), compare);
+	T rv = (T)data[nrows*ncols/2];
+	delete[] data;
+	return rv;
+}
+
+template <class T>
+inline T
+stddev(sc::SCMatrix* mat, T average=NAN){
+	T mean = average;
+	if(isnan(average)){
+		assert(not_implemented);
+		//mean = average<T>(mat);
+	}
+	int nrows = mat->nrow();
+	int ncols = mat->ncol();
+	T rv = 0.0;
+	for_each(row,nrows, col,ncols){
+		T tmpval = (T)fabs(mat->get_element(row, col));
+		rv += pow((tmpval-mean), int(2));
+	}
+	rv /= nrows*ncols;
+	return sqrt(rv);
+
+}
+
 //template <class T=value_t, class index_type=idx_t>
 //T
 //max_abs(sc::RefSCMatrix& mat, index_type &maxrow, index_type &maxcol){
@@ -103,8 +123,9 @@ memory_size_string(double length){
 	return str;
 }
 
+template <typename T>
 inline string
-memory_size_string(int length){
+memory_size_string(T length){
 	return memory_size_string(double(length));
 }
 

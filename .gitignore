@@ -3,9 +3,14 @@
 vars.zsh
 *.o
 matrices
+<<<<<<< HEAD
+sparse_int
+
+=======
 sparse_ints
 Makefile
 *.dSYM
 output.dat
 *.pyc
 *.pyo
+>>>>>>> ptp-push

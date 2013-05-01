@@ -7,6 +7,7 @@
 
 #include "compute_thread.h"
 #include "utils.h"
+#include "histogram.h"
 
 
 using namespace sparse_ints;
@@ -51,7 +52,6 @@ UntransComputeThread::run()
 	/*=========================================================*/
 	/* Open the output file(s)	                          {{{1 */ #if fold_begin
 
-	DBG_MSG("UntransComputeThread starting up.");
 	ofstream* o = new ofstream[num_types_];
 	for_each(ity, num_types_){
 		stringstream sstr;
@@ -85,8 +85,10 @@ UntransComputeThread::run()
 
 	size_t total_mem_alloc = 0;
 	size_t current_mem_alloc = 0;
+	int nbftot2 = basis2_->nbasis();
+	int nbftot4 = basis4_->nbasis();
+	value_t nbftot24 = (value_t)(nbftot2*nbftot4);
 	while(shellpairs.get_task(sh1, sh3)) {
-		DBG_MSG("Got pair " << sh1 << ", " << sh3);
 		// TODO utilize permutational symmetry when possible
 		// For now, just unroll the permutational symmetry (which
 		//   only needs to be done if the basis sets are equal; if
@@ -99,29 +101,41 @@ UntransComputeThread::run()
 			}
 			nsh2 = basis2_->nshell();
 			nsh4 = basis4_->nshell();
-			//(*quartets_processed_) += nsh2*nsh4;
+			(*quartets_processed_) += nsh2*nsh4;
 			identifier[0] = (idx_t)sh1;
 			identifier[2] = (idx_t)sh3;
 			int nbf1 = basis1_->shell(sh1).nfunction();
 			int nbf3 = basis3_->shell(sh3).nfunction();
 			int nbfpairs = nbf1*nbf3;
 
-			// Not used if we're writing all of the integrals,
-			//   but it doesn't take up a lot of memory anyway
 			value_t* max_vals[num_types_];
-			if(opts.out_type == MaxAbs){
+			if(opts.out_type & MaxAbs){
 				for_each(ity, num_types_){
-					if(opts.debug){
-						current_mem_alloc = nbfpairs * sizeof(value_t);
-						total_mem_alloc += current_mem_alloc;
-						DBG_MSG("Allocating memory block of size " << memory_size_string((int)current_mem_alloc)
-								<< ".  Total memory allocated by this method: " << memory_size_string((int)total_mem_alloc));
-						DBG_MSG("nbfpairs = " << nbfpairs << "; nbf1 = " << nbf1 << "; nbf3 = " << nbf3);
-					}
 					max_vals[ity] = allocate<value_t>(nbfpairs);
-					DBG_MSG("Allocation successful.");
 					for_each(ipair, nbfpairs)
-						max_vals[ity][nbfpairs] = -1.0;
+						max_vals[ity][ipair] = -1.0;
+				}
+			}
+			value_t* averages[num_types_];
+			if(opts.out_type & Average){
+				for_each(ity, num_types_){
+					averages[ity] = allocate<value_t>(nbfpairs);
+					for_each(ipair, nbfpairs)
+						averages[ity][ipair] = -1.0;
+				}
+			}
+			if(opts.out_type & Median){
+				cout << opts.out_type << endl;
+				assert(not_implemented);
+			}
+			if(opts.out_type & StdDev){
+				cout << opts.out_type << endl;
+				assert(not_implemented);
+			}
+			LogHistogram* histograms[num_types_];
+			if(opts.out_type & Histogram){
+				for_each(ity, num_types_){
+					histograms[ity] = new LogHistogram[nbfpairs];
 				}
 			}
 
@@ -134,7 +148,9 @@ UntransComputeThread::run()
 					const int nbf4 = basis4_->shell(sh4).nfunction();
 
 					// Compute the shell
+					timer.enter("compute shell", threadnum_);
 					inteval_->compute_shell(sh1, sh2, sh3, sh4);
+					timer.exit("compute shell", threadnum_);
 					(*quartets_processed_)++;
 
 					// Loop over basis functions and store
@@ -174,35 +190,71 @@ UntransComputeThread::run()
 							}
 							#endif
 						}
-						else if(opts.out_type == MaxAbs){
-							// Just keep track of the maximum value for the current
-							//   basis function pair in the given shell
-							int bf1234 = 0;
-							for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
-								int pairnum = bf1*nbf3 + bf3;
-								value_t aval = fabs(buff[bf1234++]);
-								if(aval > max_vals[ity][pairnum])
-									max_vals[ity][pairnum] = aval;
+						else{
+							if(opts.out_type & MaxAbs){
+								// Just keep track of the maximum value for the current
+								//   basis function pair in the given shell
+								int bf1234 = 0;
+								for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+									int pairnum = bf1*nbf3 + bf3;
+									value_t aval = fabs(buff[bf1234++]);
+									if(aval > max_vals[ity][pairnum])
+										max_vals[ity][pairnum] = aval;
+								}
 							}
+							if(opts.out_type & Average){
+								int bf1234 = 0;
+								for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+									int pairnum = bf1*nbf3 + bf3;
+									value_t aval = fabs(buff[bf1234++]);
+									averages[ity][pairnum] += aval / nbftot24;
+								}
+							}
+							if(opts.out_type & Histogram){
+								int bf1234 = 0;
+								for_each(bf1,nbf1, bf2,nbf2, bf3,nbf3, bf4,nbf4){
+									int pairnum = bf1*nbf3 + bf3;
+									histograms[ity][pairnum].insert(buff[bf1234++]);
+								}
+							}
+
 						}
 					} // end loop over types
 				} // end loop over index 4
 			} // end loop over index 2
 
-			if(opts.out_type == MaxAbs){
+			bool ident_written = false;
+			if(opts.out_type & MaxAbs){
 				for_each(ity, num_types_){
 					o[ity].write((char*)identifier, 4*sizeof(idx_t));
-					o[ity].write((char*)max_vals, nbfpairs*sizeof(value_t));
-					if(opts.debug){
-						total_mem_alloc -= current_mem_alloc;
-						DBG_MSG("(Should be) deallocating memory block of size " << memory_size_string((int)current_mem_alloc)
-								<< ".  Total memory allocated is now: " << memory_size_string((int)total_mem_alloc));
-					}
+					ident_written = true;
+					o[ity].write((char*)(max_vals[ity]), nbfpairs*sizeof(value_t));
 					deallocate(max_vals[ity]);
-					DBG_MSG("Deallocation successful.");
-					//max_vals[ity] = 0;
 				}
 			}
+			if(opts.out_type & Average){
+				for_each(ity, num_types_){
+					if(!ident_written){
+						o[ity].write((char*)identifier, 4*sizeof(idx_t));
+						ident_written = true;
+					}
+					o[ity].write((char*)(averages[ity]), nbfpairs*sizeof(value_t));
+					deallocate(averages[ity]);
+				}
+			}
+			if(opts.out_type & Histogram){
+				for_each(ity, num_types_){
+					if(!ident_written){
+						o[ity].write((char*)identifier, 4*sizeof(idx_t));
+						ident_written = true;
+					}
+					for_each(ipair, nbfpairs){
+						histograms[ity][ipair].write(o[ity]);
+					}
+					delete[] histograms[ity];
+				}
+			}
+
 
 		} // End loop over permutations
 	} // End while get task
